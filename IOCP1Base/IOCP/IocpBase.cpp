@@ -304,8 +304,8 @@ BOOL CIocpBase::DoAccept(SocketContext*& sockContext, IoContext*& ioContext)
 	// 2. 为新连接建立一个SocketContext 
 	SocketContext* newSockContext = new SocketContext;
 	newSockContext->connSocket = ioContext->hSocket;
-	memcpy_s(&(newSockContext->clientAddr), sizeof(SOCKADDR_IN),
-		&clientAddr, sizeof(SOCKADDR_IN));
+	memcpy(&(newSockContext->clientAddr), 
+		clientAddr, sizeof(SOCKADDR_IN));
 
 	// 3. 将listenSocketContext的IOContext 重置后继续投递AcceptEx
 	if (!PostAccept(sockContext, ioContext))
