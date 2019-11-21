@@ -36,7 +36,8 @@ using std::wstring;
 	 { closesocket(x); x = INVALID_SOCKET; }}
 
 #ifndef TRACE
-#define TRACE wprintf
+#define TRACE
+//#define TRACE wprintf
 //#include <atltrace.h>
 //#define TRACE AtlTrace
 #endif

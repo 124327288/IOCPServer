@@ -235,11 +235,12 @@ BOOL CIocpBase::PostAccept(SocketContext*& sockContext, IoContext*& ioContext)
 		int nErr = WSAGetLastError();
 		return false;
 	}
-	// 将接收缓冲置为0,令AcceptEx直接返回,防止拒绝服务攻击
 	//https://docs.microsoft.com/zh-cn/windows/win32/api/mswsock/nf-mswsock-acceptex
+	// 将接收缓冲置为0,令AcceptEx直接返回,防止拒绝服务攻击
+	DWORD dwAddrLen = sizeof(SOCKADDR_IN) + 16; //必须至少+16
 	if (!fnAcceptEx(listenSockContext->connSocket, ioContext->hSocket,
-		ioContext->wsaBuf.buf, 0, sizeof(sockaddr_in) + 16,
-		sizeof(sockaddr_in) + 16, &dwBytes, &ioContext->overLapped))
+		ioContext->wsaBuf.buf, 0, dwAddrLen, dwAddrLen, 
+		&dwBytes, &ioContext->overLapped))
 	{
 		if (WSA_IO_PENDING != WSAGetLastError())
 		{
@@ -290,12 +291,15 @@ BOOL CIocpBase::DoAccept(SocketContext*& sockContext, IoContext*& ioContext)
 	InterlockedDecrement(&acceptPostCount);
 	SOCKADDR_IN* clientAddr = NULL;
 	SOCKADDR_IN* localAddr = NULL;
-	int clientAddrLen, localAddrLen;
-
-	clientAddrLen = localAddrLen = sizeof(SOCKADDR_IN);
-	// 1. 获取地址信息 （GetAcceptExSockAddrs函数不仅可以获取地址信息，还可以顺便取出第一组数据）
-	fnGetAcceptExSockAddrs(ioContext->wsaBuf.buf, 0, localAddrLen, clientAddrLen,
-		(LPSOCKADDR*)&localAddr, &localAddrLen, (LPSOCKADDR*)&clientAddr, &clientAddrLen);
+	INT clientAddrLen, localAddrLen;
+	DWORD dwAddrLen = sizeof(SOCKADDR_IN) + 16; //必须至少+16
+	// 1. 获取地址信息 （GetAcceptExSockAddrs可以获取地址，还可以取出数据）
+	fnGetAcceptExSockAddrs(ioContext->wsaBuf.buf, 0, dwAddrLen,
+		dwAddrLen, (LPSOCKADDR*)&localAddr, &localAddrLen,
+		(LPSOCKADDR*)&clientAddr, &clientAddrLen);
+	/*if (!fnAcceptEx(listenSockContext->connSocket, ioContext->hSocket,
+		ioContext->wsaBuf.buf, 0, sizeof(sockaddr_in),
+		sizeof(sockaddr_in), &dwBytes, &ioContext->overLapped))*/
 
 	// 2. 为新连接建立一个SocketContext 
 	SocketContext* newSockContext = new SocketContext;
@@ -370,11 +374,12 @@ BOOL CIocpBase::DoSend(SocketContext*& sockContext, IoContext*& ioContext)
 
 BOOL CIocpBase::DoClose(SocketContext*& sockContext)
 {
-	if (sockContext != NULL && connectCount > 0)
+	if (sockContext != listenSockContext)
 	{
 		TRACE(L"DoClose(): s=%p\n", sockContext);
 		InterlockedDecrement(&connectCount);
 		RELEASE_POINTER(sockContext);
+		return true;
 	}
 	return true;
 }
