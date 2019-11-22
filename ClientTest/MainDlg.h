@@ -40,8 +40,13 @@ public:
 	// 为了减少界面代码对效率的影响，此处使用了内联
 	inline void AddInformation(const CString strInfo)
 	{
-		CString* pStr = new CString(strInfo);
-		PostMessage(WM_ADD_LIST_ITEM, 0, (LPARAM)pStr);
+		try {
+			CString* pStr = new CString(strInfo);
+			PostMessage(WM_ADD_LIST_ITEM, 0, (LPARAM)pStr);
+		}
+		catch (...)
+		{
+		}
 	}
 private:
 	// 初始化界面信息
