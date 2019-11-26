@@ -29,6 +29,9 @@ void HttpServer::notifyPackageReceived(ClientContext* pConnClient)
         if (ret > 0)
         {//½âÎöÍê³É
 			showMessage("tryDecode ok");
+			showMessage(codec.m_req.m_method.c_str());
+			showMessage(codec.m_req.m_url.c_str());
+			showMessage(codec.m_req.m_body.toString().c_str());
             string resMsg = codec.responseMessage();
             Send(pConnClient, (PBYTE)resMsg.c_str(), resMsg.length());
             pConnClient->m_inBuf.remove(pConnClient->m_inBuf.getBufferLen());

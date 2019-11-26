@@ -64,7 +64,7 @@ struct HttpCodec
 	bool informUnimplemented();
 	bool informUnsupported();
 
-private:
+//private:
 	Slice m_inBuf;
 	std::string m_outBuf;
 	HttpRequest m_req;
