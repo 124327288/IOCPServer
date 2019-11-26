@@ -13,8 +13,12 @@ Notes:
 ==========================================================================*/
 #pragma once
 #include "PerSocketContext.h"
+#include <mswsock.h>
 #include <vector>
+#include <string>
 #include <list>
+using std::vector;
+using std::string;
 
 #define WORKER_THREADS_PER_PROCESSOR 2 // 每一个处理器上产生多少个线程
 #define MAX_LISTEN_SOCKET SOMAXCONN // 同时监听的SOCKET数量//SOMAXCONN

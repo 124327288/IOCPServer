@@ -1,5 +1,8 @@
 #include "IocpModel.h"
 #include <algorithm>
+#include <string>
+
+using std::string;
 #pragma comment(lib, "WS2_32.lib")
 
 IocpServer::IocpServer(short listenPort, int maxConnectionCount) :

@@ -1,5 +1,7 @@
 #pragma once
 #include "PerIoContext.h"
+#include <vector>
+using std::vector;
 
 //============================================================================
 //	单句柄数据结构体定义(用于每一个完成端口，也就是每一个Socket的参数)
