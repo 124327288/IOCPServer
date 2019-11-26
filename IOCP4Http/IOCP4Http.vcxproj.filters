@@ -48,6 +48,9 @@
     <ClCompile Include="IOCP\Network.cpp">
       <Filter>IOCP</Filter>
     </ClCompile>
+    <ClCompile Include="HTTP\CommonLib.cpp">
+      <Filter>HTTP</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="IOCP\IocpServer.h">
@@ -85,6 +88,9 @@
     </ClInclude>
     <ClInclude Include="IOCP\LockGuard.h">
       <Filter>IOCP</Filter>
+    </ClInclude>
+    <ClInclude Include="HTTP\CommonLib.h">
+      <Filter>HTTP</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

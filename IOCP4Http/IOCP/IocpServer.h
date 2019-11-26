@@ -33,6 +33,7 @@ private:
 	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
 	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
 	std::vector<AcceptIoContext*> m_acceptIoCtxList; //接收连接的IO上下文列表
+	CRITICAL_SECTION m_csLog; // 用于Worker线程同步的互斥量
 
 public:
 	IocpServer(short listenPort = DEFAULT_PORT, int maxConnectionCount = 10000);
@@ -43,7 +44,7 @@ public:
 	bool Start();
 	bool Stop();
 	bool Shutdown();
-	bool Send(ClientContext* pConnClient, PBYTE pData, UINT len);
+	bool Send(ClientContext* pClientCtx, PBYTE pData, UINT len);
 
 	// 获取当前连接数
 	int GetConnectCount() { return m_nConnClientCnt; }
@@ -56,7 +57,7 @@ protected:
 
 	bool getAcceptExPtr();
 	bool getAcceptExSockAddrs();
-	bool setKeepAlive(ClientContext* pConnClient, 
+	bool setKeepAlive(ClientContext* pClientCtx, 
 		LPOVERLAPPED lpOverlapped, int time = 1, int interval = 1);
 
 	bool createListenSocket(short listenPort);
@@ -65,8 +66,8 @@ protected:
 	bool initAcceptIoContext();
 
 	bool postAccept(AcceptIoContext* pIoCtx);
-	PostResult postRecv(ClientContext* pConnClient);
-	PostResult postSend(ClientContext* pConnClient);
+	PostResult postRecv(ClientContext* pClientCtx);
+	PostResult postSend(ClientContext* pClientCtx);
 
 	bool handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred);
 	bool handleRecv(ClientContext* pClientCtx, LPOVERLAPPED lpOverlapped,
@@ -79,26 +80,26 @@ protected:
 	void enterIoLoop(ClientContext* pClientCtx);
 	int exitIoLoop(ClientContext* pClientCtx);
 
-	void CloseClient(ClientContext* pConnClient);
+	void CloseClient(ClientContext* pClientCtx);
 
 	//管理已连接客户端链表，线程安全
-	void addClientCtx(ClientContext* pConnClient);
-	void removeClientCtx(ClientContext* pConnClient);
+	void addClientCtx(ClientContext* pClientCtx);
+	void removeClientCtx(ClientContext* pClientCtx);
 	void removeAllClientCtxs();
 
 	ClientContext* allocateClientContext(SOCKET s);
-	void releaseClientCtx(ClientContext* pConnClient);
+	void releaseClientCtx(ClientContext* pClientCtx);
 
-	void echo(ClientContext* pConnClient);
+	void echo(ClientContext* pClientCtx);
 
 	//回调函数
-	virtual void notifyNewConnection(ClientContext* pConnClient);
-	//virtual void notifyDisconnected(ClientContext* pConnClient);
+	virtual void notifyNewConnection(ClientContext* pClientCtx);
+	//virtual void notifyDisconnected(ClientContext* pClientCtx);
 	virtual void notifyDisconnected(SOCKET s, Addr addr);
-	virtual void notifyPackageReceived(ClientContext* pConnClient);
+	virtual void notifyPackageReceived(ClientContext* pClientCtx);
 	virtual void notifyWritePackage();
 	virtual void notifyWriteCompleted();
-	virtual void showMessage(const char* szFormat, ...) {};
+	virtual void showMessage(const char* szFormat, ...);
 };
 
 #endif // !__IOCP_SERVER_H__

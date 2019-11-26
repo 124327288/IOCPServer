@@ -1,84 +1,65 @@
 #include <WinSock2.h>
 #include <Windows.h>
+#include "CommonLib.h"
 #include "HttpCodec.h"
 #include "HttpServer.h"
 #include <iostream>
 using namespace std;
 
 HttpServer::HttpServer(short listenPort, int maxConnectionCount)
-    : IocpServer(listenPort, maxConnectionCount)
+	: IocpServer(listenPort, maxConnectionCount)
 {
-	InitializeCriticalSection(&m_csLog);
 	showMessage("HttpServer() listenPort=%d", listenPort);
 }
 
 HttpServer::~HttpServer()
 {
 	showMessage("~HttpServer()");
-	DeleteCriticalSection(&m_csLog);
 }
 
-void HttpServer::notifyPackageReceived(ClientContext* pConnClient)
+void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 {
-	showMessage("notifyPackageReceived() pConnClient=%p", pConnClient);
-    HttpCodec codec(pConnClient->m_inBuf.getBuffer(),
-		pConnClient->m_inBuf.getBufferLen());
-    while (true)
-    { 
+	showMessage("notifyPackageReceived() pClientCtx=%p", pClientCtx);
+	HttpCodec codec(pClientCtx->m_inBuf.getBuffer(),
+		pClientCtx->m_inBuf.getBufferLen());
+	while (true)
+	{
 		int ret = codec.tryDecode();
-        if (ret > 0)
-        {//解析完成
+		if (ret > 0)
+		{//解析完成
 			showMessage("tryDecode ok");
 			showMessage(codec.m_req.m_method.c_str());
 			showMessage(codec.m_req.m_url.c_str());
 			showMessage(codec.m_req.m_body.toString().c_str());
-            string resMsg = codec.responseMessage();
-            Send(pConnClient, (PBYTE)resMsg.c_str(), resMsg.length());
-            pConnClient->m_inBuf.remove(pConnClient->m_inBuf.getBufferLen());
-        }
-        else if (ret < 0)
-        {//解析失败
-            showMessage("tryDecode failed");
-            CloseClient(pConnClient);
-            releaseClientCtx(pConnClient);
+			if (codec.m_req.m_url == "/")
+			{
+				string resMsg = codec.responseMessage();
+				Send(pClientCtx, (PBYTE)resMsg.c_str(), resMsg.length());
+			}
+			else //if (codec.m_req.m_url == "/favicon.ico")
+			{
+				char* pBuf = NULL;
+				string dirFile = "./files" + codec.m_req.m_url;
+				int len = readFile(dirFile, pBuf);
+				if (len > 0 && pBuf)
+				{
+					Send(pClientCtx, (PBYTE)pBuf, len);
+					delete[]pBuf;
+				}
+			}
+			pClientCtx->m_inBuf.remove(pClientCtx->m_inBuf.getBufferLen());
+		}
+		else if (ret < 0)
+		{//解析失败
+			showMessage("tryDecode failed");
+			CloseClient(pClientCtx);
+			releaseClientCtx(pClientCtx);
 			break;
-        }
+		}
 		else
 		{//数据不完整
 			showMessage("tryDecode unfinished");
 			break;
 		}
-    }
-}
-
-void print_time()
-{
-	SYSTEMTIME sysTime = { 0 };
-	GetLocalTime(&sysTime);
-	printf("%4d-%02d-%02d %02d:%02d:%02d.%03d：",
-		sysTime.wYear, sysTime.wMonth, sysTime.wDay,
-		sysTime.wHour, sysTime.wMinute, sysTime.wSecond,
-		sysTime.wMilliseconds);
-}
-
-void HttpServer::showMessage(const char* szFormat, ...)
-{
-	//printf(".");
-	//return;
-	__try
-	{
-		EnterCriticalSection(&m_csLog);
-		print_time();
-		// 处理变长参数
-		va_list arglist;
-		va_start(arglist, szFormat);
-		vprintf(szFormat, arglist);
-		va_end(arglist);
-		printf("\n");
-		return;
-	}
-	__finally
-	{
-		::LeaveCriticalSection(&m_csLog);
 	}
 }

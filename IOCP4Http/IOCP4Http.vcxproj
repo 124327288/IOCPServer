@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="HTTP\CommonLib.cpp" />
     <ClCompile Include="HTTP\HttpCodec.cpp" />
     <ClCompile Include="HTTP\HttpMessage.cpp" />
     <ClCompile Include="HTTP\HttpServer.cpp" />
@@ -33,6 +34,7 @@
     <ClCompile Include="pch.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="HTTP\CommonLib.h" />
     <ClInclude Include="HTTP\HttpCodec.h" />
     <ClInclude Include="HTTP\HttpMessage.h" />
     <ClInclude Include="HTTP\HttpServer.h" />

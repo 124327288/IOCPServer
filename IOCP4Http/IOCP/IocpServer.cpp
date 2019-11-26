@@ -23,6 +23,7 @@ IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
 	, m_lpfnGetAcceptExAddr(nullptr)
 	, m_lpfnAcceptEx(nullptr)
 {
+	InitializeCriticalSection(&m_csLog);
 	showMessage("IocpServer() listenPort=%d", listenPort);
 	//手动reset，初始状态为nonsignaled
 	m_hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -36,9 +37,10 @@ IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
 IocpServer::~IocpServer()
 {
 	Stop();
-	DeleteCriticalSection(&m_csClientList);
 	Network::unInit();
+	DeleteCriticalSection(&m_csClientList);
 	showMessage("~IocpServer()");
+	DeleteCriticalSection(&m_csLog);
 }
 
 bool IocpServer::Start()
@@ -288,10 +290,7 @@ bool IocpServer::setKeepAlive(ClientContext* pClientCtx,
 	{
 		return false;
 	}
-	//LPWSAOVERLAPPED pOl = &pClientCtx->m_recvIoCtx->m_overlapped;
-	//LPWSAOVERLAPPED pOl = nullptr;
 	LPWSAOVERLAPPED pOl = lpOverlapped;
-
 	tcp_keepalive keepAlive;
 	keepAlive.onoff = 1;
 	keepAlive.keepalivetime = time * 1000;
@@ -664,7 +663,7 @@ void IocpServer::addClientCtx(ClientContext* pClientCtx)
 
 void IocpServer::removeClientCtx(ClientContext* pClientCtx)
 {
-	showMessage("removeClientCtx() pClientCtx=", pClientCtx);
+	showMessage("removeClientCtx() pClientCtx=%p", pClientCtx);
 	LockGuard lk(&m_csClientList);
 	{
 		auto it = std::find(m_connectedClientList.begin(),
@@ -757,4 +756,36 @@ void IocpServer::notifyWritePackage()
 void IocpServer::notifyWriteCompleted()
 {
 	showMessage("notifyWriteCompleted()");
+}
+
+void print_time()
+{
+	SYSTEMTIME sysTime = { 0 };
+	GetLocalTime(&sysTime);
+	printf("%4d-%02d-%02d %02d:%02d:%02d.%03d：",
+		sysTime.wYear, sysTime.wMonth, sysTime.wDay,
+		sysTime.wHour, sysTime.wMinute, sysTime.wSecond,
+		sysTime.wMilliseconds);
+}
+
+void IocpServer::showMessage(const char* szFormat, ...)
+{
+	//printf(".");
+	//return;
+	__try
+	{
+		EnterCriticalSection(&m_csLog);
+		print_time();
+		// 处理变长参数
+		va_list arglist;
+		va_start(arglist, szFormat);
+		vprintf(szFormat, arglist);
+		va_end(arglist);
+		printf("\n");
+		return;
+	}
+	__finally
+	{
+		::LeaveCriticalSection(&m_csLog);
+	}
 }
