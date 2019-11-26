@@ -51,6 +51,8 @@ int main()
 	//字符串会被截断，很安全
 	//snprintf(s, sizeof(s), "hello world");
 	//将一个无效参数传递给了将无效参数视为严重错误的函数。
-	strncpy_s(s, "hello world", sizeof(s));
+	//strncpy_s(s, "hello world", sizeof(s));
+	cout << (void*)s << endl; //跟函数一样
+	cout << &s;
 	return 0;
 }
