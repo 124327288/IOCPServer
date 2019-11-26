@@ -13,6 +13,7 @@ protected:
 
 public:
 	Buffer();
+	Buffer(const Buffer &b);
 	virtual ~Buffer();
 	operator Slice();
 	void clear();
@@ -25,7 +26,7 @@ public:
 	BOOL insert(PBYTE pData, UINT nSize);
 	BOOL insert(const std::string& s);
 	int scan(PBYTE pScan, UINT nPos);
-	void copy(Buffer& buf);
+	void copy(Buffer& buf); //const不能加
 	PBYTE getBuffer(UINT nPos = 0);
 	UINT getBufferLen(); //数据大小
 	void writeFile(const std::string& fileName);	

@@ -33,8 +33,8 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 			showMessage(codec.m_req.m_body.toString().c_str());
 			if (codec.m_req.m_url == "/")
 			{
-				string resMsg = codec.responseMessage("hello");
-				Send(pClientCtx, (PBYTE)resMsg.c_str(), resMsg.length());
+				string rspMsg = codec.responseMessage("hello", HttpStatus::ok);
+				Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 			}
 			else //if (codec.m_req.m_url == "/favicon.ico")
 			{
@@ -43,8 +43,19 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 				int len = readFile(dirFile, pBuf);
 				if (len > 0 && pBuf)
 				{
-					Send(pClientCtx, (PBYTE)pBuf, len);
+					string rspMsg = codec.responseChunkedHeader();
+					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
+					rspMsg = codec.responseChunkedBegin(len); //开始
+					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
+					Send(pClientCtx, (PBYTE)pBuf, len); //实际数据
+					rspMsg = codec.responseChunkedEnd(); //结束
+					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 					delete[]pBuf;
+				}
+				else
+				{
+					string rspMsg = codec.responseMessage("", HttpStatus::not_found);
+					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 				}
 			}
 			pClientCtx->m_inBuf.remove(pClientCtx->m_inBuf.getBufferLen());

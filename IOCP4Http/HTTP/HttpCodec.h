@@ -18,7 +18,10 @@ struct HttpCodec
 	bool parseBody();
 	bool informUnimplemented();
 	bool informUnsupported();
-	string responseMessage(string s);
+	string responseMessage(string s, HttpStatus status);
+	string responseChunkedHeader();
+	string responseChunkedBegin(long len);
+	string responseChunkedEnd();
 
 //private:
 	Slice m_inBuf;

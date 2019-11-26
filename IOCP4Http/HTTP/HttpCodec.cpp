@@ -76,11 +76,10 @@ int HttpCodec::tryDecode()
     return -1;
 }
 
-string HttpCodec::responseMessage(string s)
+string HttpCodec::responseMessage(string s, HttpStatus status)
 {
 	ostringstream os;
-	m_res.m_status = HttpStatus::ok;
-	os << "HTTP/1.1" << " " << m_res.m_status << "\r\n";
+	os << "HTTP/1.1" << " " << status << "\r\n";
 	os << "Content-Type: text/plain\r\n";
 	os << "Content-Length: " << s.length() << "\r\n";	   
     //非法连接则通知对端关闭http连接，然后server再关闭tcp连接
@@ -88,14 +87,28 @@ string HttpCodec::responseMessage(string s)
     {
         os << "Connection: close\r\n";
     }
-    else
-    {
-        //os << "Connection: keep-alive\r\n";
-    }
     os << "\r\n";
     os << s;
-    m_outBuf = os.str();
-	return m_outBuf;
+	return os.str();
+}
+
+string HttpCodec::responseChunkedHeader()
+{
+	return string("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
+}
+
+string HttpCodec::responseChunkedBegin(long len)
+{
+	char chunk_size[65] = { 0 };
+	snprintf(chunk_size, sizeof(chunk_size), "%lX\r\n", len);
+	return string(chunk_size);
+}
+
+string HttpCodec::responseChunkedEnd()
+{
+	char chunk_size[65] = { 0 };
+	snprintf(chunk_size, sizeof(chunk_size), "%lX\r\n\r\n", 0);
+	return string(chunk_size);
 }
 
 bool HttpCodec::getHeader(Slice data, Slice& header)

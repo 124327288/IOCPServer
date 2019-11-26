@@ -144,7 +144,7 @@ bool IocpServer::Shutdown()
 
 bool IocpServer::Send(ClientContext* pClientCtx, PBYTE pData, UINT len)
 {
-	showMessage("Send() len=%d", len);
+	showMessage("Send() pClientCtx=%p len=%d", pClientCtx, len);
 	Buffer sendBuf;
 	sendBuf.write(pData, len);
 	LockGuard lk(&pClientCtx->m_csLock);

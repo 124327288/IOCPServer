@@ -4,11 +4,31 @@ Buffer::Buffer() : m_pBegin(nullptr), m_pEnd(nullptr), m_nSize(0)
 {
 }
 
+Buffer::Buffer(const Buffer& buf)
+{
+	m_nSize = 0;
+	m_pBegin = m_pEnd = nullptr;
+	int nSize = buf.m_nSize;
+	int nLen = buf.m_pEnd - buf.m_pBegin;
+	//ÄÚ´æ¶ÔÆë
+	UINT nNewSize = (UINT)ceil(nSize / 1024.0) * 1024;
+	PBYTE pNewBuffer = (PBYTE)VirtualAlloc(NULL, nNewSize,
+		MEM_COMMIT, PAGE_READWRITE);
+	if (pNewBuffer)
+	{
+		m_nSize = nNewSize;
+		m_pBegin = pNewBuffer;
+		m_pEnd = m_pBegin + nLen;
+		CopyMemory(m_pBegin, buf.m_pBegin, nLen);
+	}
+}
+
 Buffer::~Buffer()
 {
 	if (m_pBegin)
 	{
 		VirtualFree(m_pBegin, 0, MEM_RELEASE);
+		m_pBegin = nullptr;
 	}
 }
 
