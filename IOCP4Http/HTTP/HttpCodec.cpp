@@ -1,3 +1,4 @@
+#include "HttpStatus.h"
 #include "HttpCodec.h"
 #include <iostream>
 #include <sstream>
@@ -22,7 +23,7 @@ int HttpCodec::tryDecode()
     Slice version = startLine.eatWord();
     if (version.empty())
     {
-        m_res.m_status = bad_request;
+        m_res.m_status = HttpStatus::bad_request;
         return -1;
     }
     m_req.m_method = method;
@@ -41,7 +42,7 @@ int HttpCodec::tryDecode()
         }
         else
         {
-            m_res.m_status = bad_request;
+            m_res.m_status = HttpStatus::bad_request;
             return -1;
         }
     }
@@ -63,7 +64,6 @@ int HttpCodec::tryDecode()
 		atoi(contentLength.c_str()));
     if ("GET" == m_req.m_method)
     {
-        writeResponse();
         return m_inBuf.size();
     }
     else if ("POST" == m_req.m_method)
@@ -76,22 +76,15 @@ int HttpCodec::tryDecode()
     return -1;
 }
 
-std::string HttpCodec::responseMessage() const
+string HttpCodec::responseMessage(string s)
 {
-    return m_outBuf;
-}
-
-void HttpCodec::writeResponse()
-{
-    //m_outBuf.append("HTTP/1.1");
-    m_res.m_status = ok;
-    ostringstream os;
-    os << "HTTP/1.1" << " " << m_res.m_status << "\r\n";
-    os << "Content-Type: text/plain\r\n";
-    os << "Content-Length: 5\r\n";
-	   
+	ostringstream os;
+	m_res.m_status = HttpStatus::ok;
+	os << "HTTP/1.1" << " " << m_res.m_status << "\r\n";
+	os << "Content-Type: text/plain\r\n";
+	os << "Content-Length: " << s.length() << "\r\n";	   
     //非法连接则通知对端关闭http连接，然后server再关闭tcp连接
-    if (ok != m_res.m_status)
+    if (HttpStatus::ok != m_res.m_status)
     {
         os << "Connection: close\r\n";
     }
@@ -99,10 +92,10 @@ void HttpCodec::writeResponse()
     {
         //os << "Connection: keep-alive\r\n";
     }
-
     os << "\r\n";
-    os << "hello";
+    os << s;
     m_outBuf = os.str();
+	return m_outBuf;
 }
 
 bool HttpCodec::getHeader(Slice data, Slice& header)
@@ -141,12 +134,12 @@ bool HttpCodec::parseStartLine()
         }
         if ("" == m_req.m_url)
         {
-            m_res.m_status = bad_request;
+            m_res.m_status = HttpStatus::bad_request;
             return false;
         }
         if ('/' != m_req.m_url.at(0))
         {
-            m_res.m_status = bad_request;
+            m_res.m_status = HttpStatus::bad_request;
             return false;
         }
         return true;
@@ -154,7 +147,7 @@ bool HttpCodec::parseStartLine()
     catch (std::exception& e)
     {
         cout << "exception: " << e.what() << endl;
-        m_res.m_status = internal_server_error;
+        m_res.m_status = HttpStatus::internal_server_error;
         return false;
     }
 }
@@ -166,14 +159,14 @@ bool HttpCodec::parseHeader()
         auto it = m_req.m_headers.find("Content-Length");
         if (it == m_req.m_headers.end())
         {
-            m_res.m_status = bad_request;
+            m_res.m_status = HttpStatus::bad_request;
             return false;
         }
     }
     auto it = m_req.m_headers.find("Host");
     if (it == m_req.m_headers.end())
     {
-        m_res.m_status = bad_request;
+        m_res.m_status = HttpStatus::bad_request;
         return false;
     }
 
@@ -192,13 +185,13 @@ bool HttpCodec::parseBody()
 
 bool HttpCodec::informUnimplemented()
 {
-    m_res.m_status = not_implemented;
+    m_res.m_status = HttpStatus::not_implemented;
     return true;
 }
 
 bool HttpCodec::informUnsupported()
 {
     // 505 (HTTP Version Not Supported)
-    m_res.m_status = http_version_not_supported;
+    m_res.m_status = HttpStatus::http_version_not_supported;
     return true;
 }

@@ -33,7 +33,7 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 			showMessage(codec.m_req.m_body.toString().c_str());
 			if (codec.m_req.m_url == "/")
 			{
-				string resMsg = codec.responseMessage();
+				string resMsg = codec.responseMessage("hello");
 				Send(pClientCtx, (PBYTE)resMsg.c_str(), resMsg.length());
 			}
 			else //if (codec.m_req.m_url == "/favicon.ico")

@@ -92,5 +92,8 @@
     <ClInclude Include="HTTP\CommonLib.h">
       <Filter>HTTP</Filter>
     </ClInclude>
+    <ClInclude Include="HTTP\HttpStatus.h">
+      <Filter>HTTP</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

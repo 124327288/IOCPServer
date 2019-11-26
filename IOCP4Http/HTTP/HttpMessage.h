@@ -1,6 +1,7 @@
 #ifndef __HTTP_MESSAGE_H__
 #define __HTTP_MESSAGE_H__
 #include "../IOCP/BufferSlice.h"
+#include "HttpStatus.h"
 #include <unordered_map>
 
 struct HttpMessage
@@ -28,7 +29,7 @@ struct HttpRequest : public HttpMessage
 
 struct HttpResponse : public HttpMessage
 {
-	int m_status;
+	HttpStatus m_status;
 };
 
 #endif // !__HTTP_MESSAGE_H__

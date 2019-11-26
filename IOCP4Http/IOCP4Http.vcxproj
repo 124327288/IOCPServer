@@ -38,6 +38,7 @@
     <ClInclude Include="HTTP\HttpCodec.h" />
     <ClInclude Include="HTTP\HttpMessage.h" />
     <ClInclude Include="HTTP\HttpServer.h" />
+    <ClInclude Include="HTTP\HttpStatus.h" />
     <ClInclude Include="IOCP\Addr.h" />
     <ClInclude Include="IOCP\Buffer.h" />
     <ClInclude Include="IOCP\BufferSlice.h" />
