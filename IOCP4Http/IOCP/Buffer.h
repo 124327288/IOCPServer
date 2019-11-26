@@ -6,6 +6,11 @@
 
 class Buffer
 {
+protected:
+	PBYTE m_pBegin; //缓冲区头部位置，固定不移动
+	PBYTE m_pEnd; //缓冲区尾部位置
+	UINT m_nSize; //Buffer占用内存大小
+
 public:
 	Buffer();
 	virtual ~Buffer();
@@ -29,11 +34,6 @@ protected:
 	UINT reallocateBuffer(UINT nSize); //重新分配
 	UINT deallocateBuffer(UINT nSize); //貌似没用	
 	UINT getMemSize(); //占用内存大小
-
-protected:
-	PBYTE m_pBegin; //缓冲区头部位置，固定不移动
-	PBYTE m_pEnd; //缓冲区尾部位置
-	UINT m_nSize; //Buffer占用内存大小
 };
 
 #endif // !__BUFFER_H__

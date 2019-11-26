@@ -154,7 +154,7 @@ bool IocpServer::Send(ClientContext* pConnClient, PBYTE pData, UINT len)
 		pConnClient->m_sendIoCtx->m_wsaBuf.len = pConnClient->m_outBuf.getBufferLen();
 
 		PostResult result = postSend(pConnClient);
-		if (PostResult::PostResultFailed == result)
+		if (PostResult::FAILED == result)
 		{
 			CloseClient(pConnClient);
 			releaseClientContext(pConnClient);
@@ -416,7 +416,7 @@ bool IocpServer::initAcceptIoContext()
 
 bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 {
-	pAcceptIoCtx->resetBuffer();
+	pAcceptIoCtx->ResetBuffer();
 
 	DWORD dwRecvByte;
 	//PCHAR pBuf = pAcceptIoCtx->m_wsaBuf.buf;
@@ -439,9 +439,12 @@ bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 	* 解决方法：为了防止恶意连接，accpetEx不接收用户数据，
 	* 	只接收地址（没办法，接口调用必须提供缓冲区）
 	*/
+	constexpr int ACCEPT_ADDRS_SIZE = sizeof(SOCKADDR_IN) + 16;
+	constexpr int DOUBLE_ACCEPT_ADDRS_SIZE = (ACCEPT_ADDRS_SIZE) * 2;
 	static BYTE addrBuf[DOUBLE_ACCEPT_ADDRS_SIZE];
-	if (FALSE == lpfnAcceptEx(m_pListenCtx->m_socket, pAcceptIoCtx->m_acceptSocket,
-		addrBuf, 0, ACCEPT_ADDRS_SIZE, ACCEPT_ADDRS_SIZE,
+	if (FALSE == lpfnAcceptEx(m_pListenCtx->m_socket, 
+		pAcceptIoCtx->m_acceptSocket, addrBuf, 0,
+		ACCEPT_ADDRS_SIZE, ACCEPT_ADDRS_SIZE,
 		&dwRecvByte, pOverlapped))
 	{
 		if (WSA_IO_PENDING != WSAGetLastError())
@@ -460,11 +463,9 @@ bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 
 PostResult IocpServer::postRecv(ClientContext* pConnClient)
 {
-	PostResult result = PostResult::PostResultSucc;
+	PostResult result = PostResult::SUCCESS;
 	RecvIoContext* pRecvIoCtx = pConnClient->m_recvIoCtx;
-
-	pRecvIoCtx->resetBuffer();
-
+	pRecvIoCtx->ResetBuffer();
 	LockGuard lk(&pConnClient->m_csLock);
 	if (INVALID_SOCKET != pConnClient->m_socket)
 	{
@@ -476,37 +477,36 @@ PostResult IocpServer::postRecv(ClientContext* pConnClient)
 		if (SOCKET_ERROR == ret && WSA_IO_PENDING != WSAGetLastError())
 		{
 			cout << "WSARecv failed with error: " << WSAGetLastError() << endl;
-			result = PostResult::PostResultFailed;
+			result = PostResult::FAILED;
 		}
 	}
 	else
 	{
-		result = PostResult::PostResultInvalidSocket;
+		result = PostResult::INVALID;
 	}
 	return result;
 }
 
 PostResult IocpServer::postSend(ClientContext* pConnClient)
 {
-	PostResult result = PostResult::PostResultSucc;
+	PostResult result = PostResult::SUCCESS;
 	SendIoContext* pSendIoCtx = pConnClient->m_sendIoCtx;
-
 	LockGuard lk(&pConnClient->m_csLock);
 	if (INVALID_SOCKET != pConnClient->m_socket)
 	{
 		DWORD dwBytesSent;
 		DWORD dwFlag = MSG_PARTIAL;
-		int ret = WSASend(pConnClient->m_socket, &pSendIoCtx->m_wsaBuf, 1, &dwBytesSent,
-			dwFlag, &pSendIoCtx->m_Overlapped, NULL);
+		int ret = WSASend(pConnClient->m_socket, &pSendIoCtx->m_wsaBuf, 1,
+			&dwBytesSent, dwFlag, &pSendIoCtx->m_Overlapped, NULL);
 		if (SOCKET_ERROR == ret && WSA_IO_PENDING != WSAGetLastError())
 		{
 			cout << "WSASend failed with error: " << WSAGetLastError() << endl;
-			result = PostResult::PostResultFailed;
+			result = PostResult::FAILED;
 		}
 	}
 	else
 	{
-		result = PostResult::PostResultInvalidSocket;
+		result = PostResult::INVALID;
 	}
 	return result;
 }
@@ -545,8 +545,8 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	addClient(pConnClient);
 	//投递recv请求,这里invalid socket是否要关闭客户端？
 	PostResult result = postRecv(pConnClient);
-	if (PostResult::PostResultFailed == result
-		|| PostResult::PostResultInvalidSocket == result)
+	if (PostResult::FAILED == result
+		|| PostResult::INVALID == result)
 	{
 		CloseClient(pConnClient);
 		releaseClientContext(pConnClient);
@@ -564,8 +564,8 @@ bool IocpServer::handleRecv(ULONG_PTR lpCompletionKey,
 
 	//投递recv请求
 	PostResult result = postRecv(pConnClient);
-	if (PostResult::PostResultFailed == result
-		|| PostResult::PostResultInvalidSocket == result)
+	if (PostResult::FAILED == result
+		|| PostResult::INVALID == result)
 	{
 		CloseClient(pConnClient);
 		releaseClientContext(pConnClient);
@@ -603,7 +603,7 @@ bool IocpServer::handleSend(ULONG_PTR lpCompletionKey,
 		pIoCtx->m_wsaBuf.len = pConnClient->m_outBuf.getBufferLen();
 
 		PostResult result = postSend(pConnClient);
-		if (PostResult::PostResultFailed == result)
+		if (PostResult::FAILED == result)
 		{
 			CloseClient(pConnClient);
 			releaseClientContext(pConnClient);

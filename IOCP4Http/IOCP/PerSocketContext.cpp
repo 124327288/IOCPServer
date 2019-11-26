@@ -4,7 +4,6 @@
 #include "PerIoContext.h"
 #include "PerSocketContext.h"
 #include <iostream>
-using namespace std;
 
 ListenContext::ListenContext(short port, const std::string& ip)
 {
@@ -13,7 +12,6 @@ ListenContext::ListenContext(short port, const std::string& ip)
     inet_pton(AF_INET, ip.c_str(), &m_addr.sin_addr);
     //m_addr.sin_addr.s_addr = inet_addr(ip.c_str());
     m_addr.sin_port = htons(port);
-
     m_socket = Network::socket();
     assert(SOCKET_ERROR != m_socket);
 }
@@ -41,7 +39,6 @@ void ClientContext::reset()
     assert(0 == m_nPendingIoCnt);
     assert(m_outBufQueue.empty());
     SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
-    m_nLastHeartbeatTime = GetTickCount();
 }
 
 void ClientContext::appendToBuffer(PBYTE pInBuf, size_t len)
