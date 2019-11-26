@@ -22,7 +22,7 @@ void HttpServer::notifyPackageReceived(ClientContext* pConnClient)
         if (ret != 0)
         {
             string resMsg = codec.responseMessage();
-            send(pConnClient, (PBYTE)resMsg.c_str(), resMsg.length());
+            Send(pConnClient, (PBYTE)resMsg.c_str(), resMsg.length());
             pConnClient->m_inBuf.remove(pConnClient->m_inBuf.getBufferLen());
         }
         if (ret < 0)

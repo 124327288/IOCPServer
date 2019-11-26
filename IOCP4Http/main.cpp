@@ -8,7 +8,7 @@ int main()
     {
         //IocpServer server(8000);
         HttpServer server(8000);
-        bool ret = server.start();
+        bool ret = server.Start();
         if (!ret)
         {
             cout << "start failed" << endl;

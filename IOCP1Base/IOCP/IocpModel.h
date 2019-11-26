@@ -13,11 +13,13 @@ Notes:
 ==========================================================================*/
 #pragma once
 #include "PerSocketContext.h"
+#include <vector>
+#include <list>
 
 #define WORKER_THREADS_PER_PROCESSOR 2 // 每一个处理器上产生多少个线程
 #define MAX_LISTEN_SOCKET SOMAXCONN // 同时监听的SOCKET数量//SOMAXCONN
 #define MAX_POST_ACCEPT 10 // 同时投递的AcceptEx请求的数量
-#define EXIT_CODE NULL // 传递给Worker线程的退出信号
+#define EXIT_THREAD NULL // 传递给Worker线程的退出信号
 #define DEFAULT_IP "127.0.0.1" //默认IP地址
 #define DEFAULT_PORT 10240 //默认端口号
 
@@ -54,39 +56,40 @@ when the completed I/O operation was started.
 //============================================================
 typedef void (*LOG_FUNC)(const string& strInfo);
 // 工作者线程的线程参数
-class CIocpModel;
+class IocpServer;
 struct WorkerThreadParam
 {
-	CIocpModel* pIocpModel; //类指针，用于调用类中的函数
+	IocpServer* pIocpModel; //类指针，用于调用类中的函数
 	int nThreadNo; //线程编号
 	int nThreadId; //线程ID
 };
 
-class CIocpModel
+class IocpServer
 {
 private:
-	HANDLE m_hShutdownEvent; // 用来通知线程，为了能够更好的退出
+	bool m_bIsShutdown; //关闭时，退出工作线程
+	short m_listenPort; //服务器开启的监听端口号
+	LONG m_nMaxConnClientCnt; //最大客户端数量
+	LONG m_nConnClientCnt; // 当前的连接数量
+	LONG m_nWorkerCnt; // 生成的线程数量
 	HANDLE m_hIOCompletionPort; // 完成端口的句柄
-	HANDLE* m_phWorkerThreads; // 工作者线程的句柄指针
-	int m_nThreads; // 生成的线程数量
-	string m_strIP; // 服务器端的IP地址
-	int m_nPort; // 服务器端的监听端口
-	CRITICAL_SECTION m_csContextList; // 用于Worker线程同步的互斥量
-	vector<SocketContext*> m_arrayClientContext; // 客户端Socket的Context信息 
-	SocketContext* m_pListenContext; // 用于监听的Socket的Context信息
-	LONG acceptPostCount; // 当前投递的的Accept数量
-	LONG connectCount; // 当前的连接数量
-	LONG errorCount; // 当前的错误数量
-
-	// AcceptEx 和 GetAcceptExSockaddrs 的函数指针，用于调用这两个扩展函数
-	// GetAcceptExSockAddrs函数指针,win8.1以后才支持
+	HANDLE m_hExitEvent; // 用来通知线程，为了能够更好的退出
+	std::vector<HANDLE> m_hWorkerThreads; //工作线程句柄列表
 	LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExSockAddrs;
-	// AcceptEx函数指针,win8.1以后才支持
 	LPFN_ACCEPTEX m_lpfnAcceptEx;
+	SocketContext* m_pListenCtx; // 用于监听的Socket的Context信息
+	CRITICAL_SECTION m_csClientList; // 用于Worker线程同步的互斥量
+	//std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
+	//std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
+	vector<SocketContext*> m_arrayClientContext; // 客户端Socket的Context信息 
+	LONG acceptPostCount; // 当前投递的的Accept数量
+	LONG errorCount; // 当前的错误数量
+	string m_strIP; // 服务器端的IP地址
+
 
 public:
-	CIocpModel(void);
-	~CIocpModel(void);
+	IocpServer(short listenPort = DEFAULT_PORT, int maxConnectionCount = 10000);
+	~IocpServer(void);
 
 	// 加载Socket库
 	bool LoadSocketLib();
@@ -96,7 +99,7 @@ public:
 		WSACleanup();
 	}
 	// 启动服务器
-	bool Start(int port = DEFAULT_PORT);
+	bool Start();
 	//	停止服务器
 	void Stop();
 	// 获得本机的IP地址
@@ -109,9 +112,9 @@ public:
 	bool RecvData(SocketContext* pSoContext, IoContext* pIoContext);
 
 	// 获取当前连接数
-	int GetConnectCount() { return connectCount; }
+	int GetConnectCount() { return m_nConnClientCnt; }
 	// 获取当前监听端口
-	unsigned int GetPort() { return m_nPort; }
+	unsigned int GetPort() { return m_listenPort; }
 
 	// 事件通知函数(派生类重载此族函数)
 	virtual void OnConnectionAccepted(SocketContext* pSoContext){};

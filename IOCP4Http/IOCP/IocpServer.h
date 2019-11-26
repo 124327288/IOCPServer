@@ -2,8 +2,14 @@
 #define __IOCP_SERVER_H__
 #include "Addr.h"
 #include "PerSocketContext.h"
-#include <list>
+#include <mswsock.h>
 #include <vector>
+#include <list>
+
+//工作线程退出标志
+constexpr int EXIT_THREAD = 0;
+constexpr int MAX_POST_ACCEPT = 10;
+constexpr int DEFAULT_PORT = 10240; //默认端口号
 
 struct IoContext;
 struct ListenContext;
@@ -12,17 +18,40 @@ struct ClientContext;
 
 class IocpServer
 {
+private:
+	bool m_bIsShutdown; //关闭时，退出工作线程
+	short m_listenPort; //服务器开启的监听端口号
+	LONG m_nMaxConnClientCnt; //最大客户端数量
+	LONG m_nConnClientCnt; //已连接客户端数量
+	LONG m_nWorkerCnt; //io工作线程数量
+	HANDLE m_hIOCompletionPort; //完成端口
+	HANDLE m_hExitEvent; //退出线程事件
+	std::vector<HANDLE> m_hWorkerThreads; //工作线程句柄列表
+	LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExAddr;
+	LPFN_ACCEPTEX m_lpfnAcceptEx; //acceptEx函数指针
+	ListenContext* m_pListenCtx; //监听上下文
+	CRITICAL_SECTION m_csClientList; //保护客户端链表std::list<ClientContext*>
+	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
+	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
+	std::vector<AcceptIoContext*> m_acceptIoCtxList; //接收连接的IO上下文列表
+	//postSend对应的写操作已完成，可以进行下一个投递
+	HANDLE m_hWriteCompletedEvent;
+
 public:
-	IocpServer(short listenPort, int maxConnectionCount = 10000);
+	IocpServer(short listenPort = DEFAULT_PORT, int maxConnectionCount = 10000);
 	IocpServer(const IocpServer&) = delete;
 	IocpServer& operator=(const IocpServer&) = delete;
 	virtual ~IocpServer();
 
-	bool start();
-	bool stop();
-	bool shutdown();
+	bool Start();
+	bool Stop();
+	bool Shutdown();
+	bool Send(ClientContext* pConnClient, PBYTE pData, UINT len);
 
-	bool send(ClientContext* pConnClient, PBYTE pData, UINT len);
+	// 获取当前连接数
+	int GetConnectCount() { return m_nConnClientCnt; }
+	// 获取当前监听端口
+	unsigned int GetPort() { return m_listenPort; }
 
 protected:
 	//必须要static _beginthreadex才能访问
@@ -73,31 +102,6 @@ protected:
 	virtual void notifyPackageReceived(ClientContext* pConnClient);
 	virtual void notifyWritePackage();
 	virtual void notifyWriteCompleted();
-
-private:
-	bool m_bIsShutdown; //关闭时，退出工作线程
-
-	short m_listenPort;
-	HANDLE m_hComPort; //完成端口
-	HANDLE m_hExitEvent; //退出线程事件
-	//postSend对应的写操作已完成，可以进行下一个投递
-	HANDLE m_hWriteCompletedEvent; 
-
-	void* m_lpfnAcceptEx; //acceptEx函数指针
-	void* m_lpfnGetAcceptExAddr; //GetAcceptExSockaddrs函数指针
-
-	int m_nWorkerCnt; //io工作线程数量
-	DWORD m_nConnClientCnt; //已连接客户端数量
-	DWORD m_nMaxConnClientCnt; //最大客户端数量
-
-	ListenContext* m_pListenCtx; //监听上下文
-
-	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
-	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
-	CRITICAL_SECTION m_csClientList; //保护客户端链表std::list<ClientContext*>
-
-	std::vector<HANDLE> m_hWorkerThreads; //工作线程句柄列表
-	std::vector<AcceptIoContext*> m_acceptIoCtxList; //接收连接的IO上下文列表
 };
 
 #endif // !__IOCP_SERVER_H__

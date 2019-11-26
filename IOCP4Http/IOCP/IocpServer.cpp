@@ -12,20 +12,15 @@
 #include <iostream>
 using namespace std;
 
-//工作线程退出标志
-#define EXIT_THREAD 0
-constexpr int POST_ACCEPT_CNT = 10;
-
 IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
-	m_bIsShutdown(false)
-	, m_hComPort(NULL)
-	, m_hExitEvent(NULL)
-	, m_hWriteCompletedEvent(NULL)
-	, m_listenPort(listenPort)
-	, m_pListenCtx(nullptr)
+	m_bIsShutdown(false), m_listenPort(listenPort)
+	, m_nMaxConnClientCnt(maxConnectionCount)
+	, m_hIOCompletionPort(nullptr)
+	, m_hExitEvent(nullptr)
 	, m_nWorkerCnt(0)
 	, m_nConnClientCnt(0)
-	, m_nMaxConnClientCnt(maxConnectionCount)
+	, m_hWriteCompletedEvent(nullptr)
+	, m_pListenCtx(nullptr)
 {
 	//手动reset，初始状态为nonsignaled
 	m_hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -44,12 +39,12 @@ IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
 
 IocpServer::~IocpServer()
 {
-	stop();
+	Stop();
 	DeleteCriticalSection(&m_csClientList);
 	Network::unInit();
 }
 
-bool IocpServer::start()
+bool IocpServer::Start()
 {
 	if (!Network::init())
 	{
@@ -71,7 +66,7 @@ bool IocpServer::start()
 	return true;
 }
 
-bool IocpServer::stop()
+bool IocpServer::Stop()
 {
 	//同步等待所有工作线程退出
 	exitIocpWorker();
@@ -95,10 +90,10 @@ bool IocpServer::stop()
 		CloseHandle(m_hExitEvent);
 		m_hExitEvent = NULL;
 	}
-	if (m_hComPort)
+	if (m_hIOCompletionPort)
 	{
-		CloseHandle(m_hComPort);
-		m_hComPort = NULL;
+		CloseHandle(m_hIOCompletionPort);
+		m_hIOCompletionPort = NULL;
 	}
 	if (m_pListenCtx)
 	{
@@ -111,10 +106,9 @@ bool IocpServer::stop()
 	return true;
 }
 
-bool IocpServer::shutdown()
+bool IocpServer::Shutdown()
 {
 	m_bIsShutdown = true;
-
 	int ret = CancelIoEx((HANDLE)m_pListenCtx->m_socket, NULL);
 	if (0 == ret)
 	{
@@ -132,22 +126,21 @@ bool IocpServer::shutdown()
 			if (0 == ret)
 			{
 				cout << "CancelIoEx failed with error: " << WSAGetLastError() << endl;
-				return;
+				return; //这个是匿名函数
 			}
 			closesocket(pAcceptIoCtx->m_acceptSocket);
 			pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
-
 			while (!HasOverlappedIoCompleted(&pAcceptIoCtx->m_Overlapped))
+			{
 				Sleep(1);
-
+			}
 			delete pAcceptIoCtx;
 		});
 	m_acceptIoCtxList.clear();
-
-	return false;
+	return true;
 }
 
-bool IocpServer::send(ClientContext* pConnClient, PBYTE pData, UINT len)
+bool IocpServer::Send(ClientContext* pConnClient, PBYTE pData, UINT len)
 {
 	Buffer sendBuf;
 	sendBuf.write(pData, len);
@@ -189,7 +182,7 @@ unsigned WINAPI IocpServer::IocpWorkerThread(LPVOID arg)
 
 	while (WAIT_OBJECT_0 != WaitForSingleObject(pThis->m_hExitEvent, 0))
 	{
-		ret = GetQueuedCompletionStatus(pThis->m_hComPort, &dwBytesTransferred,
+		ret = GetQueuedCompletionStatus(pThis->m_hIOCompletionPort, &dwBytesTransferred,
 			&lpCompletionKey, &lpOverlapped, dwMilliSeconds);
 
 		if (EXIT_THREAD == lpCompletionKey)
@@ -254,7 +247,7 @@ HANDLE IocpServer::associateWithCompletionPort(SOCKET s, ULONG_PTR completionKey
 	}
 	else
 	{
-		hRet = CreateIoCompletionPort((HANDLE)s, m_hComPort, completionKey, 0);
+		hRet = CreateIoCompletionPort((HANDLE)s, m_hIOCompletionPort, completionKey, 0);
 	}
 	if (NULL == hRet)
 	{
@@ -334,8 +327,8 @@ bool IocpServer::createListenClient(short listenPort)
 {
 	m_pListenCtx = new ListenContext(listenPort);
 	//创建完成端口
-	m_hComPort = associateWithCompletionPort(INVALID_SOCKET, NULL);
-	if (NULL == m_hComPort)
+	m_hIOCompletionPort = associateWithCompletionPort(INVALID_SOCKET, NULL);
+	if (NULL == m_hIOCompletionPort)
 	{
 		return false;
 	}
@@ -394,7 +387,7 @@ bool IocpServer::exitIocpWorker()
 	for (int i = 0; i < m_nWorkerCnt; ++i)
 	{
 		//通知工作线程退出
-		ret = PostQueuedCompletionStatus(m_hComPort, 0, EXIT_THREAD, NULL);
+		ret = PostQueuedCompletionStatus(m_hIOCompletionPort, 0, EXIT_THREAD, NULL);
 		if (FALSE == ret)
 		{
 			cout << "PostQueuedCompletionStatus failed with error: "
@@ -409,7 +402,7 @@ bool IocpServer::exitIocpWorker()
 bool IocpServer::initAcceptIoContext()
 {
 	//投递accept请求
-	for (int i = 0; i < POST_ACCEPT_CNT; ++i)
+	for (int i = 0; i < MAX_POST_ACCEPT; ++i)
 	{
 		AcceptIoContext* pAcceptIoCtx = new AcceptIoContext(PostType::ACCEPT);
 		m_acceptIoCtxList.emplace_back(pAcceptIoCtx);
@@ -731,7 +724,7 @@ void IocpServer::releaseClientContext(ClientContext* pConnClient)
 
 void IocpServer::echo(ClientContext* pConnClient)
 {
-	send(pConnClient, pConnClient->m_inBuf.getBuffer(),
+	Send(pConnClient, pConnClient->m_inBuf.getBuffer(),
 		pConnClient->m_inBuf.getBufferLen());
 	pConnClient->m_inBuf.remove(pConnClient->m_inBuf.getBufferLen());
 }
