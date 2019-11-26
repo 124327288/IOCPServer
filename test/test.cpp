@@ -91,8 +91,11 @@ int main()
 	A a2("a2");
 	A a3(a1);
 
-	qu.push(a1);
-	qu.push(a2);
+	//qu.push(a1);
+	qu.emplace(a1);
+	//qu.push(A("a3"));
+	//qu.emplace(A("a3"));
+	qu.emplace("a3");
 	cout << qu.front().name << endl;
 	qu.pop();
 	cout << qu.front().name << endl;
