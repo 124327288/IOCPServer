@@ -404,7 +404,7 @@ bool IocpServer::initAcceptIoContext()
 	//Õ∂µ›accept«Î«Û
 	for (int i = 0; i < MAX_POST_ACCEPT; ++i)
 	{
-		AcceptIoContext* pAcceptIoCtx = new AcceptIoContext(PostType::ACCEPT);
+		AcceptIoContext* pAcceptIoCtx = new AcceptIoContext();
 		m_acceptIoCtxList.emplace_back(pAcceptIoCtx);
 		if (!postAccept(pAcceptIoCtx))
 		{
@@ -489,7 +489,7 @@ PostResult IocpServer::postRecv(ClientContext* pConnClient)
 PostResult IocpServer::postSend(ClientContext* pConnClient)
 {
 	PostResult result = PostResult::PostResultSucc;
-	IoContext* pSendIoCtx = pConnClient->m_sendIoCtx;
+	SendIoContext* pSendIoCtx = pConnClient->m_sendIoCtx;
 
 	LockGuard lk(&pConnClient->m_csLock);
 	if (INVALID_SOCKET != pConnClient->m_socket)
@@ -577,7 +577,7 @@ bool IocpServer::handleSend(ULONG_PTR lpCompletionKey,
 	LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred)
 {
 	ClientContext* pConnClient = (ClientContext*)lpCompletionKey;
-	IoContext* pIoCtx = (IoContext*)lpOverlapped;
+	SendIoContext* pIoCtx = (SendIoContext*)lpOverlapped;
 	DWORD n = -1;
 
 	LockGuard lk(&pConnClient->m_csLock);

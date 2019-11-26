@@ -16,8 +16,8 @@ struct ListenContext
 	SOCKADDR_IN m_addr; //监听地址
 };
 
-struct IoContext;
 struct RecvIoContext;
+struct SendIoContext;
 
 struct ClientContext
 {
@@ -34,7 +34,7 @@ struct ClientContext
 	//Avoids Access Violation，该值为0时才能释放ClientContext
 	ULONG m_nPendingIoCnt; 
 	RecvIoContext* m_recvIoCtx;
-	IoContext* m_sendIoCtx;
+	SendIoContext* m_sendIoCtx;
 	Buffer m_inBuf;
 	Buffer m_outBuf;
 	std::queue<Buffer> m_outBufQueue;

@@ -20,7 +20,7 @@ ListenContext::ListenContext(short port, const std::string& ip)
 
 ClientContext::ClientContext(const SOCKET& socket) :
     m_socket(socket), m_recvIoCtx(new RecvIoContext())
-    , m_sendIoCtx(new IoContext(PostType::SEND))
+    , m_sendIoCtx(new SendIoContext())
     , m_nPendingIoCnt(0)
 {
     SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));

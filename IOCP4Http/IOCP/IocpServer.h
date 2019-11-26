@@ -11,10 +11,9 @@ constexpr int EXIT_THREAD = 0;
 constexpr int MAX_POST_ACCEPT = 10;
 constexpr int DEFAULT_PORT = 10240; //Ĭ�϶˿ں�
 
-struct IoContext;
 struct ListenContext;
-struct AcceptIoContext;
 struct ClientContext;
+struct AcceptIoContext;
 
 class IocpServer
 {

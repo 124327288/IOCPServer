@@ -8,7 +8,7 @@ using namespace std;
 
 // 缓冲区长度 (1024*8) 之所以为什么设置8K，也是一个江湖上的经验值
 // 如果确实客户端发来的每组数据都比较少，那么就设置得小一些，省内存
-#define MAX_BUFFER_LEN (1024*8)
+constexpr int MAX_BUFFER_LEN = (1024 * 8);
 
 // 在完成端口上投递的I/O操作的类型
 enum class PostType

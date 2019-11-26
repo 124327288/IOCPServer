@@ -52,3 +52,12 @@ void RecvIoContext::resetBuffer()
     SecureZeroMemory(&m_Overlapped, sizeof(OVERLAPPED));
     SecureZeroMemory(&m_recvBuf, MAX_BUFFER_LEN);
 }
+
+SendIoContext::SendIoContext()
+	: IoContext(PostType::SEND)
+{
+}
+
+SendIoContext::~SendIoContext()
+{
+}
