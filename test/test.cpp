@@ -9,19 +9,19 @@ void noMemoryToAlloc()
 
 int main1()
 {
-	try 
-	{ 
+	try
+	{
 		//set过后，新的异常处理函数会被调用到
 		set_new_handler(noMemoryToAlloc);
-		size_t size = 0x7FFFFFFFFFFFFFFF;
+		size_t size = 0;//0x7FFFFFFFFFFFFFFF;
 		int* p = new int[size];
 		if (p == 0) // 检查 p 是否空指针
 		{
 			return -1;
 		}
 	}
-	catch (const bad_alloc & e) 
-	{ 
+	catch (const bad_alloc & e)
+	{
 		//否则，会调用到这里
 		cerr << e.what();
 		return -1;
@@ -45,7 +45,7 @@ int main2()
 }
 
 
-int main()
+int main3()
 {
 	char s[10] = { 0 };
 	//字符串会被截断，很安全
@@ -55,4 +55,48 @@ int main()
 	cout << (void*)s << endl; //跟函数一样
 	cout << &s;
 	return 0;
+}
+
+#include <queue>
+#include <string>
+class A
+{
+
+public:
+	string name;
+
+	A(string nam)
+	{
+		cout << nam + "  constructor is called !" << endl;
+		name = nam;
+	}
+
+	A(const A& a)
+	{
+		this->name = "A copy of " + a.name;
+		cout << name + "  copy constructor is called !" << endl;
+	}
+
+	~A()
+	{
+		cout << name + "  destructor is called " << endl;
+	}
+};
+
+int main()
+{
+	queue<A> qu;
+
+	A a1("a1");
+	A a2("a2");
+	A a3(a1);
+
+	qu.push(a1);
+	qu.push(a2);
+	cout << qu.front().name << endl;
+	qu.pop();
+	cout << qu.front().name << endl;
+	qu.pop();
+
+	cout << "end of main()" << endl;
 }
