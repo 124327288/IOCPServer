@@ -33,8 +33,6 @@ private:
 	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
 	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
 	std::vector<AcceptIoContext*> m_acceptIoCtxList; //接收连接的IO上下文列表
-	//postSend对应的写操作已完成，可以进行下一个投递
-	HANDLE m_hWriteCompletedEvent;
 
 public:
 	IocpServer(short listenPort = DEFAULT_PORT, int maxConnectionCount = 10000);
@@ -56,13 +54,12 @@ protected:
 	//必须要static _beginthreadex才能访问
 	static unsigned WINAPI IocpWorkerThread(LPVOID arg);
 
-	HANDLE associateWithCompletionPort(SOCKET s, ULONG_PTR completionKey);
 	bool getAcceptExPtr();
-	bool getAcceptExSockaddrs();
-	bool setKeepAlive(ClientContext* pConnClient, LPOVERLAPPED lpOverlapped,
-		int time = 1, int interval = 1);
+	bool getAcceptExSockAddrs();
+	bool setKeepAlive(ClientContext* pConnClient, 
+		LPOVERLAPPED lpOverlapped, int time = 1, int interval = 1);
 
-	bool createListenClient(short listenPort);
+	bool createListenSocket(short listenPort);
 	bool createIocpWorker();
 	bool exitIocpWorker();
 	bool initAcceptIoContext();
@@ -72,11 +69,11 @@ protected:
 	PostResult postSend(ClientContext* pConnClient);
 
 	bool handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred);
-	bool handleRecv(ULONG_PTR lpCompletionKey, LPOVERLAPPED lpOverlapped,
+	bool handleRecv(ClientContext* pClientCtx, LPOVERLAPPED lpOverlapped,
 		DWORD dwBytesTransferred);
-	bool handleSend(ULONG_PTR lpCompletionKey, LPOVERLAPPED lpOverlapped,
+	bool handleSend(ClientContext* pClientCtx, LPOVERLAPPED lpOverlapped,
 		DWORD dwBytesTransferred);
-	bool handleClose(ULONG_PTR lpCompletionKey);
+	bool handleClose(ClientContext* pClientCtx);
 
 	// Used to avoid access violation.
 	void enterIoLoop(ClientContext* pClientCtx);
@@ -85,12 +82,12 @@ protected:
 	void CloseClient(ClientContext* pConnClient);
 
 	//管理已连接客户端链表，线程安全
-	void addClient(ClientContext* pConnClient);
-	void removeClient(ClientContext* pConnClient);
-	void removeAllClients();
+	void addClientCtx(ClientContext* pConnClient);
+	void removeClientCtx(ClientContext* pConnClient);
+	void removeAllClientCtxs();
 
 	ClientContext* allocateClientContext(SOCKET s);
-	void releaseClientContext(ClientContext* pConnClient);
+	void releaseClientCtx(ClientContext* pConnClient);
 
 	void echo(ClientContext* pConnClient);
 
@@ -101,6 +98,7 @@ protected:
 	virtual void notifyPackageReceived(ClientContext* pConnClient);
 	virtual void notifyWritePackage();
 	virtual void notifyWriteCompleted();
+	virtual void showMessage(const char* szFormat, ...) {};
 };
 
 #endif // !__IOCP_SERVER_H__

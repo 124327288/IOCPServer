@@ -6,6 +6,7 @@ using namespace std;
 int main()
 {
     {
+		cout << "main()" << endl;
         //IocpServer server(8000);
         HttpServer server(8000);
         bool ret = server.Start();
