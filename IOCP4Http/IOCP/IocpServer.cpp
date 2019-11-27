@@ -319,7 +319,8 @@ bool IocpServer::createListenSocket(short listenPort)
 	showMessage("createListenClient() listenPort=%d pListenCtx=%p, s=%d",
 		listenPort, m_pListenCtx, m_pListenCtx->m_socket);
 	//创建完成端口
-	m_hIOCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+	m_hIOCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, 
+		NULL, 0, 0); //NumberOfConcurrentThreads
 	if (NULL == m_hIOCompletionPort)
 	{
 		return false;
