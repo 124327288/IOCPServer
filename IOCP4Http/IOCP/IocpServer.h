@@ -8,7 +8,8 @@
 
 //工作线程退出标志
 constexpr int EXIT_THREAD = 0;
-constexpr int MAX_POST_ACCEPT = 10;
+constexpr int MAX_POST_ACCEPT = 10; //最大投递数
+constexpr int MAX_CONN_COUNT = 100000; //最大并发连接数
 constexpr int DEFAULT_PORT = 10240; //默认端口号
 
 struct ListenContext;
@@ -36,7 +37,7 @@ private:
 	CRITICAL_SECTION m_csLog; // 用于Worker线程同步的互斥量
 
 public:
-	IocpServer(short listenPort = DEFAULT_PORT, int maxConnectionCount = 10000);
+	IocpServer(short listenPort = DEFAULT_PORT, int maxConnCount = MAX_CONN_COUNT);
 	IocpServer(const IocpServer&) = delete;
 	IocpServer& operator=(const IocpServer&) = delete;
 	virtual ~IocpServer();

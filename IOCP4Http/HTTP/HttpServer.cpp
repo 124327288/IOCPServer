@@ -6,8 +6,8 @@
 #include <iostream>
 using namespace std;
 
-HttpServer::HttpServer(short listenPort, int maxConnectionCount)
-	: IocpServer(listenPort, maxConnectionCount)
+HttpServer::HttpServer(short listenPort, int maxConnCount)
+	: IocpServer(listenPort, maxConnCount)
 {
 	showMessage("HttpServer() listenPort=%d", listenPort);
 }

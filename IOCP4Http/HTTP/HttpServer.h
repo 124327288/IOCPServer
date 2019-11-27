@@ -5,7 +5,7 @@
 class HttpServer : public IocpServer
 {
 public:
-    HttpServer(short listenPort, int maxConnectionCount = 10000);
+	HttpServer(short listenPort, int maxConnCount = MAX_CONN_COUNT);
     ~HttpServer();
 	
 protected:

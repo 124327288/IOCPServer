@@ -12,9 +12,9 @@
 #include <iostream>
 using namespace std;
 
-IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
+IocpServer::IocpServer(short listenPort, int maxConnCount) :
 	m_bIsShutdown(false), m_listenPort(listenPort)
-	, m_nMaxConnClientCnt(maxConnectionCount)
+	, m_nMaxConnClientCnt(maxConnCount)
 	, m_hIOCompletionPort(nullptr)
 	, m_hExitEvent(nullptr)
 	, m_nWorkerCnt(0)
@@ -516,7 +516,8 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 		pAcceptIoCtx, pAcceptIoCtx->m_acceptSocket);
 	//达到最大连接数则关闭新的socket
 	if (m_nConnClientCnt + 1 >= m_nMaxConnClientCnt)
-	{
+	{//WSAECONNABORTED=(10053)//Software caused connection abort.
+		//WSAECONNRESET=(10054)//Connection reset by peer.
 		closesocket(pAcceptIoCtx->m_acceptSocket);
 		pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
 		postAccept(pAcceptIoCtx);
