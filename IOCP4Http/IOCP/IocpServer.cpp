@@ -63,6 +63,7 @@ bool IocpServer::Start()
 	{
 		return false;
 	}
+	showMessage("Start() done\n");
 	return true;
 }
 
@@ -104,6 +105,7 @@ bool IocpServer::Stop()
 		m_pListenCtx = nullptr;
 	}
 	removeAllClientCtxs();
+	showMessage("Stop() done\n");
 	return true;
 }
 
@@ -159,7 +161,7 @@ bool IocpServer::Send(ClientContext* pClientCtx, PBYTE pData, UINT len)
 		PostResult result = postSend(pClientCtx);
 		if (PostResult::FAILED == result)
 		{
-			CloseClient(pClientCtx);
+			closeClientSocket(pClientCtx);
 			releaseClientCtx(pClientCtx);
 			return false;
 		}
@@ -188,7 +190,8 @@ unsigned WINAPI IocpServer::IocpWorkerThread(LPVOID arg)
 	{
 		ret = GetQueuedCompletionStatus(pThis->m_hIOCompletionPort, &dwBytesTransferred,
 			&lpCompletionKey, &lpOverlapped, dwMilliSeconds);
-		pThis->showMessage("IocpWorkerThread() pClientCtx=%p", lpCompletionKey);
+		pThis->showMessage("IocpWorkerThread() tid=%d, pClientCtx=%p, pIoCtx=%p",
+			GetCurrentThreadId(), lpCompletionKey, lpOverlapped);
 		if (EXIT_THREAD == lpCompletionKey)
 		{
 			//退出工作线程
@@ -310,8 +313,9 @@ bool IocpServer::setKeepAlive(ClientContext* pClientCtx,
 
 bool IocpServer::createListenSocket(short listenPort)
 {
-	showMessage("createListenClient() listenPort=%d", listenPort);
 	m_pListenCtx = new ListenContext(listenPort);
+	showMessage("createListenClient() listenPort=%d pListenCtx=%p, s=%d",
+		listenPort, m_pListenCtx, m_pListenCtx->m_socket);
 	//创建完成端口
 	m_hIOCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 	if (NULL == m_hIOCompletionPort)
@@ -349,7 +353,8 @@ bool IocpServer::createListenSocket(short listenPort)
 
 bool IocpServer::createIocpWorker()
 {
-	showMessage("createIocpWorker() tid=%d", GetCurrentThreadId());
+	showMessage("createIocpWorker() pid=%d, tid=%d",
+		GetCurrentProcessId(), GetCurrentThreadId());
 	//根据CPU核数创建IO线程
 	HANDLE hWorker;
 	SYSTEM_INFO sysInfo;
@@ -408,10 +413,11 @@ bool IocpServer::initAcceptIoContext()
 
 bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 {
-	showMessage("postAccept() pAcceptIoCtx=%p", pAcceptIoCtx);
 	pAcceptIoCtx->ResetBuffer();
 	//创建用于接受连接的socket
 	pAcceptIoCtx->m_acceptSocket = Network::socket();
+	showMessage("postAccept() pAcceptIoCtx=%p s=%d",
+		pAcceptIoCtx, pAcceptIoCtx->m_acceptSocket);
 	if (SOCKET_ERROR == pAcceptIoCtx->m_acceptSocket)
 	{
 		showMessage("create socket failed");
@@ -451,8 +457,9 @@ bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 
 PostResult IocpServer::postRecv(ClientContext* pClientCtx)
 {
-	showMessage("postRecv() pClientCtx=%p", pClientCtx);
 	RecvIoContext* pRecvIoCtx = pClientCtx->m_recvIoCtx;
+	showMessage("postRecv() pClientCtx=%p, s=%d, pRecvIoCtx=%p",
+		pClientCtx, pClientCtx->m_socket, pRecvIoCtx);
 	PostResult result = PostResult::SUCCESS;
 	pRecvIoCtx->ResetBuffer();
 	LockGuard lk(&pClientCtx->m_csLock);
@@ -478,8 +485,9 @@ PostResult IocpServer::postRecv(ClientContext* pClientCtx)
 
 PostResult IocpServer::postSend(ClientContext* pClientCtx)
 {
-	showMessage("postSend() pClientCtx=%p", pClientCtx);
 	SendIoContext* pSendIoCtx = pClientCtx->m_sendIoCtx;
+	showMessage("postSend() pClientCtx=%p, s=%d, pSendIoCtx=%p", 
+		pClientCtx, pClientCtx->m_socket, pSendIoCtx);
 	PostResult result = PostResult::SUCCESS;
 	LockGuard lk(&pClientCtx->m_csLock);
 	if (INVALID_SOCKET != pClientCtx->m_socket)
@@ -503,8 +511,9 @@ PostResult IocpServer::postSend(ClientContext* pClientCtx)
 
 bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred)
 {
-	showMessage("postSend() lpOverlapped=%p", lpOverlapped);
 	AcceptIoContext* pAcceptIoCtx = (AcceptIoContext*)lpOverlapped;
+	showMessage("handleAccept() pAcceptIoCtx=%p, s=%d",
+		pAcceptIoCtx, pAcceptIoCtx->m_acceptSocket);
 	Network::updateAcceptContext(m_pListenCtx->m_socket,
 		pAcceptIoCtx->m_acceptSocket);
 	//达到最大连接数则关闭新的socket
@@ -540,7 +549,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	if (PostResult::FAILED == result
 		|| PostResult::INVALID == result)
 	{
-		CloseClient(pClientCtx);
+		closeClientSocket(pClientCtx);
 		releaseClientCtx(pClientCtx);
 	}
 	return true;
@@ -549,7 +558,8 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 bool IocpServer::handleRecv(ClientContext* pClientCtx,
 	LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred)
 {
-	showMessage("handleRecv() pClientCtx=%p", pClientCtx);
+	showMessage("handleRecv() pClientCtx=%p, s=%d, pRecvIoCtx=%p",
+		pClientCtx, pClientCtx->m_socket, lpOverlapped);
 	RecvIoContext* pRecvIoCtx = (RecvIoContext*)lpOverlapped;
 	pClientCtx->appendToBuffer(pRecvIoCtx->m_recvBuf, dwBytesTransferred);
 	notifyPackageReceived(pClientCtx);
@@ -559,7 +569,7 @@ bool IocpServer::handleRecv(ClientContext* pClientCtx,
 	if (PostResult::FAILED == result
 		|| PostResult::INVALID == result)
 	{
-		CloseClient(pClientCtx);
+		closeClientSocket(pClientCtx);
 		releaseClientCtx(pClientCtx);
 	}
 	return true;
@@ -568,8 +578,9 @@ bool IocpServer::handleRecv(ClientContext* pClientCtx,
 bool IocpServer::handleSend(ClientContext* pClientCtx,
 	LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred)
 {
-	showMessage("handleSend() pClientCtx=%p", pClientCtx);
-	SendIoContext* pIoCtx = (SendIoContext*)lpOverlapped;
+	showMessage("handleSend() pClientCtx=%p, s=%d, pSendIoCtx=%p",
+		pClientCtx, pClientCtx->m_socket, lpOverlapped);
+	SendIoContext* pSendIoCtx = (SendIoContext*)lpOverlapped;
 	DWORD n = -1;
 
 	LockGuard lk(&pClientCtx->m_csLock);
@@ -591,13 +602,13 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 	}
 	if (0 != pClientCtx->m_outBuf.getBufferLen())
 	{
-		pIoCtx->m_wsaBuf.buf = (PCHAR)pClientCtx->m_outBuf.getBuffer();
-		pIoCtx->m_wsaBuf.len = pClientCtx->m_outBuf.getBufferLen();
+		pSendIoCtx->m_wsaBuf.buf = (PCHAR)pClientCtx->m_outBuf.getBuffer();
+		pSendIoCtx->m_wsaBuf.len = pClientCtx->m_outBuf.getBufferLen();
 
 		PostResult result = postSend(pClientCtx);
 		if (PostResult::FAILED == result)
 		{
-			CloseClient(pClientCtx);
+			closeClientSocket(pClientCtx);
 			releaseClientCtx(pClientCtx);
 		}
 	}
@@ -606,8 +617,9 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 
 bool IocpServer::handleClose(ClientContext* pClientCtx)
 {
-	showMessage("handleClose() pClientCtx=%p", pClientCtx);
-	CloseClient(pClientCtx);
+	showMessage("handleClose() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	closeClientSocket(pClientCtx);
 	releaseClientCtx(pClientCtx);
 	return true;
 }
@@ -622,9 +634,10 @@ int IocpServer::exitIoLoop(ClientContext* pClientCtx)
 	return InterlockedDecrement(&pClientCtx->m_nPendingIoCnt);
 }
 
-void IocpServer::CloseClient(ClientContext* pClientCtx)
+void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 {
-	showMessage("CloseClient() pClientCtx=%p", pClientCtx);
+	showMessage("closeClientSocket() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
 	SOCKET s;
 	Addr peerAddr;
 	{
@@ -656,14 +669,16 @@ void IocpServer::CloseClient(ClientContext* pClientCtx)
 
 void IocpServer::addClientCtx(ClientContext* pClientCtx)
 {
-	showMessage("addClientCtx() pClientCtx=%p", pClientCtx);
+	showMessage("addClientCtx() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
 	LockGuard lk(&m_csClientList);
 	m_connectedClientList.emplace_back(pClientCtx);
 }
 
 void IocpServer::removeClientCtx(ClientContext* pClientCtx)
 {
-	showMessage("removeClientCtx() pClientCtx=%p", pClientCtx);
+	showMessage("removeClientCtx() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
 	LockGuard lk(&m_csClientList);
 	{
 		auto it = std::find(m_connectedClientList.begin(),
@@ -711,7 +726,8 @@ ClientContext* IocpServer::allocateClientContext(SOCKET s)
 
 void IocpServer::releaseClientCtx(ClientContext* pClientCtx)
 {
-	showMessage("releaseClientCtx() pClientCtx=%p", pClientCtx);
+	showMessage("releaseClientCtx() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
 	if (exitIoLoop(pClientCtx) <= 0)
 	{
 		removeClientCtx(pClientCtx);
@@ -730,7 +746,8 @@ void IocpServer::echo(ClientContext* pClientCtx)
 
 void IocpServer::notifyNewConnection(ClientContext* pClientCtx)
 {
-	showMessage("notifyNewConnection() pClientCtx=%p", pClientCtx);
+	showMessage("notifyNewConnection() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
 	SOCKADDR_IN sockaddr = Network::getpeername(pClientCtx->m_socket);
 	pClientCtx->m_addr = sockaddr;
 	showMessage("connected client: %s, s=%d",
@@ -744,7 +761,8 @@ void IocpServer::notifyDisconnected(SOCKET s, Addr addr)
 
 void IocpServer::notifyPackageReceived(ClientContext* pClientCtx)
 {
-	showMessage("notifyPackageReceived() pClientCtx=%p", pClientCtx);
+	showMessage("notifyPackageReceived() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
 	echo(pClientCtx);
 }
 

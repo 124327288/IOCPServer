@@ -80,7 +80,7 @@ protected:
 	void enterIoLoop(ClientContext* pClientCtx);
 	int exitIoLoop(ClientContext* pClientCtx);
 
-	void CloseClient(ClientContext* pClientCtx);
+	void closeClientSocket(ClientContext* pClientCtx);
 
 	//管理已连接客户端链表，线程安全
 	void addClientCtx(ClientContext* pClientCtx);
