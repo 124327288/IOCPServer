@@ -487,8 +487,7 @@ bool IocpServer::_DoAccept(SocketContext* pSoContext, IoContext* pIoContext)
 	//加入到ContextList中去(需要统一管理，方便释放资源)
 	this->_AddToContextList(pNewSocketContext);
 	pNewSocketContext->m_Socket = pIoContext->m_acceptSocket;
-	memcpy(&(pNewSocketContext->m_ClientAddr), 
-		clientAddr, sizeof(SOCKADDR_IN));
+	memcpy(&(pNewSocketContext->m_ClientAddr), clientAddr, remoteLen);
 
 	// 3. 将listenSocketContext的IOContext 重置后继续投递AcceptEx
 	if (!_PostAccept(pIoContext))

@@ -26,7 +26,7 @@ private:
 	HANDLE m_hIOCompletionPort; //完成端口
 	HANDLE m_hExitEvent; //退出线程事件
 	std::vector<HANDLE> m_hWorkerThreads; //工作线程句柄列表
-	LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExAddr;
+	LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExSockAddrs;
 	LPFN_ACCEPTEX m_lpfnAcceptEx; //acceptEx函数指针
 	ListenContext* m_pListenCtx; //监听上下文
 	CRITICAL_SECTION m_csClientList; //保护客户端链表std::list<ClientContext*>
@@ -87,7 +87,7 @@ protected:
 	void removeClientCtx(ClientContext* pClientCtx);
 	void removeAllClientCtxs();
 
-	ClientContext* allocateClientContext(SOCKET s);
+	ClientContext* allocateClientCtx(SOCKET s);
 	void releaseClientCtx(ClientContext* pClientCtx);
 
 	void echo(ClientContext* pClientCtx);

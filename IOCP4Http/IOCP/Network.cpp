@@ -1,7 +1,6 @@
 #include "Network.h"
 #include <MswSock.h>
-#include <iostream>
-using namespace std;
+#include <cstdio>
 
 bool Network::init()
 {
@@ -39,7 +38,7 @@ SOCKADDR_IN Network::getsockname(SOCKET s)
     int ret = ::getsockname(s, (PSOCKADDR)&addr, &addrLen);
     if (SOCKET_ERROR == ret)
     {
-        cout << "getsockname failed with error: " << WSAGetLastError() << endl;
+		printf("getsockname failed with error: %d\n", WSAGetLastError());
     }
     return addr[0];
 }
@@ -60,7 +59,7 @@ SOCKADDR_IN Network::getpeername(SOCKET s)
     int ret = ::getpeername(s, (PSOCKADDR)&addr, &addrLen);
     if (SOCKET_ERROR == ret)
     {
-        cout << "getpeername failed with error: " << WSAGetLastError() << endl;
+		printf("getpeername failed with error: %d\n", WSAGetLastError());
     }
     return addr[0];
 }
@@ -72,7 +71,7 @@ bool Network::setKeepAlive(SOCKET s, bool on)
 		sizeof(DWORD)); //保持激活，长连接；发送“保持活动”包。
     if (SOCKET_ERROR == ret)
     {
-        cout << "setsockopt failed with error: " << WSAGetLastError() << endl;
+		printf("setsockopt failed with error: %d\n", WSAGetLastError());
         return false;
     }
     return true;
@@ -87,7 +86,7 @@ bool Network::setLinger(SOCKET s, bool on, int timeoutSecs)
 		sizeof(LINGER)); //关闭时有未发送数据，则逗留。
     if (SOCKET_ERROR == ret)
     {
-        cout << "setsockopt failed with error: " << WSAGetLastError() << endl;
+		printf("setsockopt failed with error: %d\n", WSAGetLastError());
         return false;
     }
     return true;
@@ -99,7 +98,7 @@ bool Network::updateAcceptContext(SOCKET listenSocket, SOCKET acceptSocket)
 		(char*)&listenSocket, sizeof(SOCKET)); //让accept的socket继承listen的属性
     if (SOCKET_ERROR == ret)
     {
-        cout << "setsockopt failed with error: " << WSAGetLastError() << endl;
+		printf("setsockopt failed with error: %d\n", WSAGetLastError());
         return false;
     }
     return true;

@@ -209,7 +209,7 @@ bool HttpCodec::parseHeader()
     auto it2 = m_req.m_headers.find("Connection");
     if (it2 != m_req.m_headers.end())
     {
-        cout << "keep-alive" << endl;
+        //cout << "keep-alive" << endl;
     }
     return true;
 }

@@ -20,7 +20,7 @@ IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
 	, m_nWorkerCnt(0)
 	, m_nConnClientCnt(0)
 	, m_pListenCtx(nullptr)
-	, m_lpfnGetAcceptExAddr(nullptr)
+	, m_lpfnGetAcceptExSockAddrs(nullptr)
 	, m_lpfnAcceptEx(nullptr)
 {
 	InitializeCriticalSection(&m_csLog);
@@ -146,10 +146,10 @@ bool IocpServer::Shutdown()
 
 bool IocpServer::Send(ClientContext* pClientCtx, PBYTE pData, UINT len)
 {
+	LockGuard lk(&pClientCtx->m_csLock);
 	showMessage("Send() pClientCtx=%p len=%d", pClientCtx, len);
 	Buffer sendBuf;
 	sendBuf.write(pData, len);
-	LockGuard lk(&pClientCtx->m_csLock);
 	if (0 == pClientCtx->m_outBuf.getBufferLen())
 	{
 		//第一次投递，++m_nPendingIoCnt
@@ -258,6 +258,7 @@ bool IocpServer::getAcceptExPtr()
 	{
 		showMessage("WSAIoctl failed with error: %d", WSAGetLastError());
 		closesocket(m_pListenCtx->m_socket);
+		m_pListenCtx->m_socket = INVALID_SOCKET;
 		return false;
 	}
 	m_lpfnAcceptEx = lpfnAcceptEx;
@@ -268,19 +269,21 @@ bool IocpServer::getAcceptExSockAddrs()
 {
 	DWORD dwBytes;
 	GUID GuidAddrs = WSAID_GETACCEPTEXSOCKADDRS;
-	LPFN_GETACCEPTEXSOCKADDRS lpfnGetAcceptExAddr = NULL;
+	LPFN_GETACCEPTEXSOCKADDRS pfnGetAcceptExSockAddrs = NULL;
 	int ret = WSAIoctl(m_pListenCtx->m_socket,
 		SIO_GET_EXTENSION_FUNCTION_POINTER,
 		&GuidAddrs, sizeof(GuidAddrs),
-		&lpfnGetAcceptExAddr, sizeof(lpfnGetAcceptExAddr),
+		&pfnGetAcceptExSockAddrs, 
+		sizeof(pfnGetAcceptExSockAddrs),
 		&dwBytes, NULL, NULL);
 	if (SOCKET_ERROR == ret)
 	{
 		showMessage("WSAIoctl failed with error: %d", WSAGetLastError());
 		closesocket(m_pListenCtx->m_socket);
+		m_pListenCtx->m_socket = INVALID_SOCKET;
 		return false;
 	}
-	m_lpfnGetAcceptExAddr = lpfnGetAcceptExAddr;
+	m_lpfnGetAcceptExSockAddrs = pfnGetAcceptExSockAddrs;
 	return true;
 }
 
@@ -432,11 +435,9 @@ bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 	LPOVERLAPPED pOverlapped = &pAcceptIoCtx->m_Overlapped;
 	LPFN_ACCEPTEX lpfnAcceptEx = (LPFN_ACCEPTEX)m_lpfnAcceptEx;
 	constexpr int ACCEPT_ADDRS_SIZE = sizeof(SOCKADDR_IN) + 16;
-	constexpr int DOUBLE_ACCEPT_ADDRS_SIZE = (ACCEPT_ADDRS_SIZE) * 2;
-	static BYTE addrBuf[DOUBLE_ACCEPT_ADDRS_SIZE];
 	if (FALSE == lpfnAcceptEx(m_pListenCtx->m_socket,
-		pAcceptIoCtx->m_acceptSocket, addrBuf, 0,
-		ACCEPT_ADDRS_SIZE, ACCEPT_ADDRS_SIZE,
+		pAcceptIoCtx->m_acceptSocket, pAcceptIoCtx->m_wsaBuf.buf,
+		0, ACCEPT_ADDRS_SIZE, ACCEPT_ADDRS_SIZE,
 		&dwRecvByte, pOverlapped))
 	{
 		if (WSA_IO_PENDING != WSAGetLastError())
@@ -456,12 +457,12 @@ bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 
 PostResult IocpServer::postRecv(ClientContext* pClientCtx)
 {
+	LockGuard lk(&pClientCtx->m_csLock);
 	RecvIoContext* pRecvIoCtx = pClientCtx->m_recvIoCtx;
 	showMessage("postRecv() pClientCtx=%p, s=%d, pRecvIoCtx=%p",
 		pClientCtx, pClientCtx->m_socket, pRecvIoCtx);
 	PostResult result = PostResult::SUCCESS;
 	pRecvIoCtx->ResetBuffer();
-	LockGuard lk(&pClientCtx->m_csLock);
 	if (INVALID_SOCKET != pClientCtx->m_socket)
 	{
 		DWORD dwBytes;
@@ -471,7 +472,7 @@ PostResult IocpServer::postRecv(ClientContext* pClientCtx)
 			&dwBytes, &dwFlag, &pRecvIoCtx->m_Overlapped, NULL);
 		if (SOCKET_ERROR == ret && WSA_IO_PENDING != WSAGetLastError())
 		{
-			showMessage("WSARecv failed with error: ", WSAGetLastError());
+			showMessage("WSARecv failed with error: %d", WSAGetLastError());
 			result = PostResult::FAILED;
 		}
 	}
@@ -484,11 +485,11 @@ PostResult IocpServer::postRecv(ClientContext* pClientCtx)
 
 PostResult IocpServer::postSend(ClientContext* pClientCtx)
 {
+	LockGuard lk(&pClientCtx->m_csLock);
 	SendIoContext* pSendIoCtx = pClientCtx->m_sendIoCtx;
 	showMessage("postSend() pClientCtx=%p, s=%d, pSendIoCtx=%p",
 		pClientCtx, pClientCtx->m_socket, pSendIoCtx);
 	PostResult result = PostResult::SUCCESS;
-	LockGuard lk(&pClientCtx->m_csLock);
 	if (INVALID_SOCKET != pClientCtx->m_socket)
 	{
 		DWORD dwBytesSent;
@@ -513,21 +514,30 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	AcceptIoContext* pAcceptIoCtx = (AcceptIoContext*)lpOverlapped;
 	showMessage("handleAccept() pAcceptIoCtx=%p, s=%d",
 		pAcceptIoCtx, pAcceptIoCtx->m_acceptSocket);
-	Network::updateAcceptContext(m_pListenCtx->m_socket,
-		pAcceptIoCtx->m_acceptSocket);
 	//达到最大连接数则关闭新的socket
-	if (m_nConnClientCnt >= m_nMaxConnClientCnt)
+	if (m_nConnClientCnt + 1 >= m_nMaxConnClientCnt)
 	{
 		closesocket(pAcceptIoCtx->m_acceptSocket);
 		pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
 		postAccept(pAcceptIoCtx);
 		return true;
 	}
-	InterlockedIncrement(&m_nConnClientCnt);
+	InterlockedDecrement(&m_nConnClientCnt);
+	SOCKADDR_IN* clientAddr = NULL, * localAddr = NULL;
+	DWORD dwAddrLen = (sizeof(SOCKADDR_IN) + 16);
+	int remoteLen = 0, localLen = 0; //必须+16,参见MSDN
+	this->m_lpfnGetAcceptExSockAddrs(pAcceptIoCtx->m_wsaBuf.buf,
+		0, //pIoContext->m_wsaBuf.len - (dwAddrLen * 2),
+		dwAddrLen, dwAddrLen, (LPSOCKADDR*)&localAddr,
+		&localLen, (LPSOCKADDR*)&clientAddr, &remoteLen);
+	Network::updateAcceptContext(m_pListenCtx->m_socket,
+		pAcceptIoCtx->m_acceptSocket);
 	//创建新的ClientContext，原来的IoContext要用来接收新的连接
-	//ClientContext刚创建，在此函数不需要加锁
-	ClientContext* pClientCtx = allocateClientContext(pAcceptIoCtx->m_acceptSocket);
-	//memcpy_s(&pClientCtx->m_addr, peerAddrLen, peerAddr, peerAddrLen);
+	ClientContext* pClientCtx = allocateClientCtx(pAcceptIoCtx->m_acceptSocket);
+	//SOCKADDR_IN sockaddr = Network::getpeername(pClientCtx->m_socket);
+	pClientCtx->m_addr = *(SOCKADDR_IN*)&clientAddr;
+	//先投递，避免下面绑定失败，还没有投递，会导致投递数减少
+	postAccept(pAcceptIoCtx); //投递一个新的accpet请求
 	if (NULL == CreateIoCompletionPort((HANDLE)pClientCtx->m_socket,
 		m_hIOCompletionPort, (ULONG_PTR)pClientCtx, 0))
 	{
@@ -537,8 +547,6 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	//开启心跳机制
 	//setKeepAlive(pClientCtx, &pAcceptIoCtx->m_overlapped);
 	//pClientCtx->appendToBuffer((PBYTE)pBuf, dwBytesTransferred);
-	//投递一个新的accpet请求
-	postAccept(pAcceptIoCtx);
 	notifyNewConnection(pClientCtx);
 	//notifyPackageReceived(pClientCtx);
 	//将客户端加入连接列表
@@ -575,12 +583,10 @@ bool IocpServer::handleRecv(ClientContext* pClientCtx,
 bool IocpServer::handleSend(ClientContext* pClientCtx,
 	LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred)
 {
-	showMessage("handleSend() pClientCtx=%p, s=%d, pSendIoCtx=%p",
-		pClientCtx, pClientCtx->m_socket, lpOverlapped);
-	SendIoContext* pSendIoCtx = (SendIoContext*)lpOverlapped;
-	DWORD n = -1;
-
 	LockGuard lk(&pClientCtx->m_csLock);
+	SendIoContext* pSendIoCtx = (SendIoContext*)lpOverlapped;
+	showMessage("handleSend() pClientCtx=%p, s=%d, pSendIoCtx=%p",
+		pClientCtx, pClientCtx->m_socket, pSendIoCtx);
 	pClientCtx->m_outBuf.remove(dwBytesTransferred);
 	if (0 == pClientCtx->m_outBuf.getBufferLen())
 	{
@@ -700,9 +706,9 @@ void IocpServer::removeAllClientCtxs()
 		m_connectedClientList.end());
 }
 
-ClientContext* IocpServer::allocateClientContext(SOCKET s)
+ClientContext* IocpServer::allocateClientCtx(SOCKET s)
 {
-	showMessage("allocateClientContext() s=%d", s);
+	showMessage("allocateClientCtx() s=%d", s);
 	ClientContext* pClientCtx = nullptr;
 	LockGuard lk(&m_csClientList);
 	if (m_freeClientList.empty())
@@ -744,8 +750,6 @@ void IocpServer::notifyNewConnection(ClientContext* pClientCtx)
 {
 	showMessage("notifyNewConnection() pClientCtx=%p, s=%d",
 		pClientCtx, pClientCtx->m_socket);
-	SOCKADDR_IN sockaddr = Network::getpeername(pClientCtx->m_socket);
-	pClientCtx->m_addr = sockaddr;
 	showMessage("connected client: %s, s=%d",
 		pClientCtx->m_addr.toString().c_str(), pClientCtx->m_socket);
 }
