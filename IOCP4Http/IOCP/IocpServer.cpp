@@ -125,7 +125,7 @@ bool IocpServer::Shutdown()
 	for_each(m_acceptIoCtxList.begin(), m_acceptIoCtxList.end(),
 		[](AcceptIoContext* pAcceptIoCtx)
 		{
-			int ret = CancelIoEx((HANDLE)pAcceptIoCtx->m_acceptSocket, 
+			int ret = CancelIoEx((HANDLE)pAcceptIoCtx->m_acceptSocket,
 				&pAcceptIoCtx->m_Overlapped);
 			if (0 == ret)
 			{
@@ -161,8 +161,7 @@ bool IocpServer::Send(ClientContext* pClientCtx, PBYTE pData, UINT len)
 		PostResult result = postSend(pClientCtx);
 		if (PostResult::FAILED == result)
 		{
-			closeClientSocket(pClientCtx);
-			releaseClientCtx(pClientCtx);
+			handleClose(pClientCtx);
 			return false;
 		}
 	}
@@ -270,7 +269,7 @@ bool IocpServer::getAcceptExSockAddrs()
 	DWORD dwBytes;
 	GUID GuidAddrs = WSAID_GETACCEPTEXSOCKADDRS;
 	LPFN_GETACCEPTEXSOCKADDRS lpfnGetAcceptExAddr = NULL;
-	int ret = WSAIoctl(m_pListenCtx->m_socket, 
+	int ret = WSAIoctl(m_pListenCtx->m_socket,
 		SIO_GET_EXTENSION_FUNCTION_POINTER,
 		&GuidAddrs, sizeof(GuidAddrs),
 		&lpfnGetAcceptExAddr, sizeof(lpfnGetAcceptExAddr),
@@ -381,7 +380,7 @@ bool IocpServer::exitIocpWorker()
 	for (int i = 0; i < m_nWorkerCnt; ++i)
 	{
 		//通知工作线程退出
-		ret = PostQueuedCompletionStatus(m_hIOCompletionPort, 
+		ret = PostQueuedCompletionStatus(m_hIOCompletionPort,
 			0, EXIT_THREAD, NULL);
 		if (FALSE == ret)
 		{
@@ -390,7 +389,7 @@ bool IocpServer::exitIocpWorker()
 		}
 	}
 	//这里不明白为什么会返回0，不是应该返回m_nWorkerCnt-1吗？
-	ret = WaitForMultipleObjects(m_nWorkerCnt, 
+	ret = WaitForMultipleObjects(m_nWorkerCnt,
 		m_hWorkerThreads.data(), TRUE, INFINITE);
 	return true;
 }
@@ -435,7 +434,7 @@ bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 	constexpr int ACCEPT_ADDRS_SIZE = sizeof(SOCKADDR_IN) + 16;
 	constexpr int DOUBLE_ACCEPT_ADDRS_SIZE = (ACCEPT_ADDRS_SIZE) * 2;
 	static BYTE addrBuf[DOUBLE_ACCEPT_ADDRS_SIZE];
-	if (FALSE == lpfnAcceptEx(m_pListenCtx->m_socket, 
+	if (FALSE == lpfnAcceptEx(m_pListenCtx->m_socket,
 		pAcceptIoCtx->m_acceptSocket, addrBuf, 0,
 		ACCEPT_ADDRS_SIZE, ACCEPT_ADDRS_SIZE,
 		&dwRecvByte, pOverlapped))
@@ -486,7 +485,7 @@ PostResult IocpServer::postRecv(ClientContext* pClientCtx)
 PostResult IocpServer::postSend(ClientContext* pClientCtx)
 {
 	SendIoContext* pSendIoCtx = pClientCtx->m_sendIoCtx;
-	showMessage("postSend() pClientCtx=%p, s=%d, pSendIoCtx=%p", 
+	showMessage("postSend() pClientCtx=%p, s=%d, pSendIoCtx=%p",
 		pClientCtx, pClientCtx->m_socket, pSendIoCtx);
 	PostResult result = PostResult::SUCCESS;
 	LockGuard lk(&pClientCtx->m_csLock);
@@ -524,7 +523,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 		postAccept(pAcceptIoCtx);
 		return true;
 	}
-	InterlockedIncrement(&m_nConnClientCnt);	
+	InterlockedIncrement(&m_nConnClientCnt);
 	//创建新的ClientContext，原来的IoContext要用来接收新的连接
 	//ClientContext刚创建，在此函数不需要加锁
 	ClientContext* pClientCtx = allocateClientContext(pAcceptIoCtx->m_acceptSocket);
@@ -549,8 +548,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	if (PostResult::FAILED == result
 		|| PostResult::INVALID == result)
 	{
-		closeClientSocket(pClientCtx);
-		releaseClientCtx(pClientCtx);
+		handleClose(pClientCtx);
 	}
 	return true;
 }
@@ -569,8 +567,7 @@ bool IocpServer::handleRecv(ClientContext* pClientCtx,
 	if (PostResult::FAILED == result
 		|| PostResult::INVALID == result)
 	{
-		closeClientSocket(pClientCtx);
-		releaseClientCtx(pClientCtx);
+		handleClose(pClientCtx);
 	}
 	return true;
 }
@@ -597,7 +594,7 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 		}
 		else
 		{
-			releaseClientCtx(pClientCtx);
+			handleClose(pClientCtx);
 		}
 	}
 	if (0 != pClientCtx->m_outBuf.getBufferLen())
@@ -608,8 +605,7 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 		PostResult result = postSend(pClientCtx);
 		if (PostResult::FAILED == result)
 		{
-			closeClientSocket(pClientCtx);
-			releaseClientCtx(pClientCtx);
+			handleClose(pClientCtx);
 		}
 	}
 	return false;

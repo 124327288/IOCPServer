@@ -71,8 +71,7 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 		else if (ret < 0)
 		{//½âÎöÊ§°Ü
 			showMessage("tryDecode failed");
-			closeClientSocket(pClientCtx);
-			releaseClientCtx(pClientCtx);
+			handleClose(pClientCtx);
 			break;
 		}
 		else
