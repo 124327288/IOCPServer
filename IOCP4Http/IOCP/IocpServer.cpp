@@ -522,7 +522,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 		postAccept(pAcceptIoCtx);
 		return true;
 	}
-	InterlockedDecrement(&m_nConnClientCnt);
+	InterlockedIncrement(&m_nConnClientCnt);
 	SOCKADDR_IN* clientAddr = NULL, * localAddr = NULL;
 	DWORD dwAddrLen = (sizeof(SOCKADDR_IN) + 16);
 	int remoteLen = 0, localLen = 0; //±ØÐë+16,²Î¼ûMSDN
@@ -541,6 +541,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	if (NULL == CreateIoCompletionPort((HANDLE)pClientCtx->m_socket,
 		m_hIOCompletionPort, (ULONG_PTR)pClientCtx, 0))
 	{
+		InterlockedDecrement(&m_nConnClientCnt);
 		return false;
 	}
 	enterIoLoop(pClientCtx);
@@ -750,10 +751,10 @@ void IocpServer::echo(ClientContext* pClientCtx)
 
 void IocpServer::notifyNewConnection(ClientContext* pClientCtx)
 {
-	showMessage("notifyNewConnection() pClientCtx=%p, s=%d",
+	printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
+	showMessage("notifyNewConnection() pClientCtx=%p, %s, s=%d",
+		pClientCtx->m_addr.toString().c_str(),
 		pClientCtx, pClientCtx->m_socket);
-	showMessage("connected client: %s, s=%d",
-		pClientCtx->m_addr.toString().c_str(), pClientCtx->m_socket);
 }
 
 void IocpServer::notifyDisconnected(SOCKET s, Addr addr)
@@ -790,7 +791,7 @@ void print_time()
 
 void IocpServer::showMessage(const char* szFormat, ...)
 {
-	printf(".");
+	//printf(".");
 	return;
 	__try
 	{
