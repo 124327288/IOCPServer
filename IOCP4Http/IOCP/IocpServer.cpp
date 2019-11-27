@@ -794,7 +794,7 @@ void print_time()
 void IocpServer::showMessage(const char* szFormat, ...)
 {
 	//printf(".");
-	return;
+	//return;
 	__try
 	{
 		EnterCriticalSection(&m_csLog);
