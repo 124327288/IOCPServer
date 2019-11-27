@@ -537,7 +537,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	//创建新的ClientContext，原来的IoContext要用来接收新的连接
 	ClientContext* pClientCtx = allocateClientCtx(pAcceptIoCtx->m_acceptSocket);
 	//SOCKADDR_IN sockaddr = Network::getpeername(pClientCtx->m_socket);
-	pClientCtx->m_addr = *(SOCKADDR_IN*)&clientAddr;
+	pClientCtx->m_addr = *(SOCKADDR_IN*)clientAddr;
 	//先投递，避免下面绑定失败，还没有投递，会导致投递数减少
 	postAccept(pAcceptIoCtx); //投递一个新的accpet请求
 	if (NULL == CreateIoCompletionPort((HANDLE)pClientCtx->m_socket,
@@ -753,10 +753,10 @@ void IocpServer::echo(ClientContext* pClientCtx)
 
 void IocpServer::notifyNewConnection(ClientContext* pClientCtx)
 {
-	printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
-	showMessage("notifyNewConnection() pClientCtx=%p, %s, s=%d",
-		pClientCtx->m_addr.toString().c_str(),
-		pClientCtx, pClientCtx->m_socket);
+	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
+	showMessage("notifyNewConnection() pClientCtx=%p, s=%d, %s",
+		pClientCtx, pClientCtx->m_socket, 
+		pClientCtx->m_addr.toString().c_str());
 }
 
 void IocpServer::notifyDisconnected(SOCKET s, Addr addr)
