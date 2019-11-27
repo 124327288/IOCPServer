@@ -600,7 +600,9 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 		}
 		else
 		{
-			handleClose(pClientCtx);
+			//发送完毕，不能关socket
+			//handleClose(pClientCtx);
+			releaseClientCtx(pClientCtx);
 		}
 	}
 	if (0 != pClientCtx->m_outBuf.getBufferLen())
@@ -788,8 +790,8 @@ void print_time()
 
 void IocpServer::showMessage(const char* szFormat, ...)
 {
-	//printf(".");
-	//return;
+	printf(".");
+	return;
 	__try
 	{
 		EnterCriticalSection(&m_csLog);

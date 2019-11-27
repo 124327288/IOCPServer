@@ -6,8 +6,8 @@ int main()
 {
     {
 		printf("main()\n");
-		//IocpServer server(10240);
-		HttpServer server(8000);
+		IocpServer server(10240);
+		//HttpServer server(8000);
         bool ret = server.Start();
         if (!ret)
         {
