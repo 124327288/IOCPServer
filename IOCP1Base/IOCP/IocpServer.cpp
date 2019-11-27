@@ -1,3 +1,4 @@
+#include "Network.h"
 #include "IocpServer.h"
 #include <algorithm>
 #include <string>
@@ -18,16 +19,21 @@ IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
 	, m_pListenCtx(nullptr)
 	, acceptPostCount(0)
 {
+	InitializeCriticalSection(&m_csLog);
 	errorCount = 0;
-	m_LogFunc = nullptr;
-	this->LoadSocketLib();
+	if (!Network::init())
+	{
+		showMessage("初始化WinSock 2.2失败！");
+	}
 }
 
 IocpServer::~IocpServer(void)
 {
 	// 确保资源彻底释放
 	this->Stop();
-	this->UnloadSocketLib();
+	Network::unInit();
+	showMessage("~IocpServer()");
+	DeleteCriticalSection(&m_csLog);
 }
 
 ///////////////////////////////////////////////////////////////////
@@ -48,7 +54,7 @@ DWORD WINAPI IocpServer::_WorkerThread(LPVOID lpParam)
 	const int nThreadNo = pParam->nThreadNo;
 	const int nThreadId = pParam->nThreadId;
 
-	pIocpModel->_ShowMessage("工作者线程，No:%d, ID:%d", nThreadNo, nThreadId);
+	pIocpModel->showMessage("工作者线程，No:%d, ID:%d", nThreadNo, nThreadId);
 	//循环处理请求，直到接收到Shutdown信息为止
 	while (WAIT_OBJECT_0 != WaitForSingleObject(pIocpModel->m_hExitEvent, 0))
 	{
@@ -118,35 +124,16 @@ DWORD WINAPI IocpServer::_WorkerThread(LPVOID lpParam)
 				break;
 				default:
 					// 不应该执行到这里
-					pIocpModel->_ShowMessage("_WorkThread中的m_OpType 参数异常");
+					pIocpModel->showMessage("_WorkThread中的m_OpType 参数异常");
 					break;
 				} //switch
 			}//if
 		}//if
 	}//while
-	pIocpModel->_ShowMessage("工作者线程 %d 号退出", nThreadNo);
+	pIocpModel->showMessage("工作者线程 %d 号退出", nThreadNo);
 	// 释放线程参数
 	RELEASE_POINTER(lpParam);
 	return 0;
-}
-
-//================================================================================
-//				 系统初始化和终止
-//================================================================================
-////////////////////////////////////////////////////////////////////
-// 初始化WinSock 2.2
-//函数功能：初始化套接字
-bool IocpServer::LoadSocketLib()
-{
-	WSADATA wsaData = { 0 };
-	const int nRet = WSAStartup(MAKEWORD(2, 2), &wsaData);
-	// 错误(一般都不可能出现)
-	if (NO_ERROR != nRet)
-	{
-		this->_ShowMessage("初始化WinSock 2.2失败！");
-		return false;
-	}
-	return true;
 }
 
 //函数功能：启动服务器
@@ -159,25 +146,25 @@ bool IocpServer::Start()
 	// 初始化IOCP
 	if (!_InitializeIOCP())
 	{
-		this->_ShowMessage("初始化IOCP失败！");
+		this->showMessage("初始化IOCP失败！");
 		return false;
 	}
 	else
 	{
-		this->_ShowMessage("初始化IOCP完毕！");
+		this->showMessage("初始化IOCP完毕！");
 	}
 	// 初始化Socket
 	if (!_InitializeListenSocket())
 	{
-		this->_ShowMessage("监听Socket初始化失败！");
+		this->showMessage("监听Socket初始化失败！");
 		this->_DeInitialize();
 		return false;
 	}
 	else
 	{
-		this->_ShowMessage("监听Socket初始化完毕");
+		this->showMessage("监听Socket初始化完毕");
 	}
-	this->_ShowMessage("系统准备就绪，等候连接...");
+	this->showMessage("系统准备就绪，等候连接...");
 	return true;
 }
 
@@ -204,7 +191,7 @@ void IocpServer::Stop()
 		this->_ClearContextList();
 		// 释放其他资源
 		this->_DeInitialize();
-		this->_ShowMessage("停止监听");
+		this->showMessage("停止监听");
 	}
 	else
 	{
@@ -214,10 +201,10 @@ void IocpServer::Stop()
 
 bool IocpServer::SendData(SocketContext* pSoContext, char* data, int size)
 {
-	this->_ShowMessage("SendData(): s=%p d=%p", pSoContext, data);
+	this->showMessage("SendData(): s=%p d=%p", pSoContext, data);
 	if (!pSoContext || !data || size <= 0 || size > MAX_BUFFER_LEN)
 	{
-		this->_ShowMessage("SendData()，参数有误");
+		this->showMessage("SendData()，参数有误");
 		return false;
 	}
 	//投递WSASend请求，发送数据
@@ -249,7 +236,7 @@ bool IocpServer::RecvData(SocketContext* pSoContext, IoContext* pIoContext)
 // 初始化完成端口
 bool IocpServer::_InitializeIOCP()
 {
-	this->_ShowMessage("初始化IOCP-InitializeIOCP()");
+	this->showMessage("初始化IOCP-InitializeIOCP()");
 	//If this parameter is zero, the system allows as many 
 	//concurrently running threads as there are processors in the system.
 	//如果此参数为零，则系统允许的并发运行线程数量与系统中的处理器数量相同。
@@ -257,7 +244,7 @@ bool IocpServer::_InitializeIOCP()
 		nullptr, 0, 0); //NumberOfConcurrentThreads
 	if (nullptr == m_hIOCompletionPort)
 	{
-		this->_ShowMessage("建立完成端口失败！错误代码: %d!", WSAGetLastError());
+		this->showMessage("建立完成端口失败！错误代码: %d!", WSAGetLastError());
 		return false;
 	}
 	// 根据本机中的处理器数量，建立对应的线程数
@@ -274,7 +261,7 @@ bool IocpServer::_InitializeIOCP()
 		m_hWorkerThreads.emplace_back(hWorker);
 		pThreadParams->nThreadId = nThreadID;
 	}
-	this->_ShowMessage("建立WorkerThread %d 个", m_nWorkerCnt);
+	this->showMessage("建立WorkerThread %d 个", m_nWorkerCnt);
 	return true;
 }
 
@@ -282,7 +269,7 @@ bool IocpServer::_InitializeIOCP()
 // 初始化Socket
 bool IocpServer::_InitializeListenSocket()
 {
-	this->_ShowMessage("初始化Socket-InitializeListenSocket()");
+	this->showMessage("初始化Socket-InitializeListenSocket()");
 	// 生成用于监听的Socket的信息
 	m_pListenCtx = new SocketContext;
 	// 需要使用重叠IO，必须得使用WSASocket来建立Socket，才可以支持重叠IO操作
@@ -290,27 +277,27 @@ bool IocpServer::_InitializeListenSocket()
 		IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 	if (INVALID_SOCKET == m_pListenCtx->m_Socket)
 	{
-		this->_ShowMessage("WSASocket() 失败，err=%d", WSAGetLastError());
+		this->showMessage("WSASocket() 失败，err=%d", WSAGetLastError());
 		this->_DeInitialize();
 		return false;
 	}
 	else
 	{
-		this->_ShowMessage("创建 WSASocket() 完成");
+		this->showMessage("创建 WSASocket() 完成");
 	}
 
 	// 将Listen Socket绑定至完成端口中
 	if (NULL == CreateIoCompletionPort((HANDLE)m_pListenCtx->m_Socket,
 		m_hIOCompletionPort, (DWORD)m_pListenCtx, 0))
 	{
-		this->_ShowMessage("绑定失败！err=%d",
+		this->showMessage("绑定失败！err=%d",
 			WSAGetLastError());
 		this->_DeInitialize();
 		return false;
 	}
 	else
 	{
-		this->_ShowMessage("绑定完成端口 完成");
+		this->showMessage("绑定完成端口 完成");
 	}
 
 	// 填充地址信息
@@ -327,25 +314,25 @@ bool IocpServer::_InitializeListenSocket()
 	if (SOCKET_ERROR == bind(m_pListenCtx->m_Socket,
 		(sockaddr*)&serverAddress, sizeof(serverAddress)))
 	{
-		this->_ShowMessage("bind()函数执行错误");
+		this->showMessage("bind()函数执行错误");
 		this->_DeInitialize();
 		return false;
 	}
 	else
 	{
-		this->_ShowMessage("bind() 完成");
+		this->showMessage("bind() 完成");
 	}
 
 	// 开始进行监听
 	if (SOCKET_ERROR == listen(m_pListenCtx->m_Socket, MAX_LISTEN_SOCKET))
 	{
-		this->_ShowMessage("listen()出错, err=%d", WSAGetLastError());
+		this->showMessage("listen()出错, err=%d", WSAGetLastError());
 		this->_DeInitialize();
 		return false;
 	}
 	else
 	{
-		this->_ShowMessage("listen() 完成");
+		this->showMessage("listen() 完成");
 	}
 
 	// 使用AcceptEx函数，因为这个是属于WinSock2规范之外的微软另外提供的扩展函数
@@ -358,7 +345,7 @@ bool IocpServer::_InitializeListenSocket()
 		sizeof(GuidAcceptEx), &m_lpfnAcceptEx,
 		sizeof(m_lpfnAcceptEx), &dwBytes, NULL, NULL))
 	{
-		this->_ShowMessage("WSAIoctl 未能获取AcceptEx函数指针。错误代码: %d",
+		this->showMessage("WSAIoctl 未能获取AcceptEx函数指针。错误代码: %d",
 			WSAGetLastError());
 		this->_DeInitialize();
 		return false;
@@ -370,7 +357,7 @@ bool IocpServer::_InitializeListenSocket()
 		sizeof(GuidGetAcceptExSockAddrs), &m_lpfnGetAcceptExSockAddrs,
 		sizeof(m_lpfnGetAcceptExSockAddrs), &dwBytes, NULL, NULL))
 	{
-		this->_ShowMessage("WSAIoctl 未能获取GuidGetAcceptExSockAddrs函数指针。"
+		this->showMessage("WSAIoctl 未能获取GuidGetAcceptExSockAddrs函数指针。"
 			"错误代码: %d", WSAGetLastError());
 		this->_DeInitialize();
 		return false;
@@ -388,7 +375,7 @@ bool IocpServer::_InitializeListenSocket()
 			return false;
 		}
 	}
-	this->_ShowMessage("投递 %d 个AcceptEx请求完毕", MAX_POST_ACCEPT);
+	this->showMessage("投递 %d 个AcceptEx请求完毕", MAX_POST_ACCEPT);
 	return true;
 }
 
@@ -407,7 +394,7 @@ void IocpServer::_DeInitialize()
 	RELEASE_HANDLE(m_hIOCompletionPort);
 	// 关闭监听Socket
 	RELEASE_POINTER(m_pListenCtx);
-	this->_ShowMessage("释放资源完毕");
+	this->showMessage("释放资源完毕");
 }
 
 //================================================================================
@@ -430,7 +417,7 @@ bool IocpServer::_PostAccept(IoContext* pIoContext)
 		IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 	if (INVALID_SOCKET == pIoContext->m_acceptSocket)
 	{// 投递多少次ACCEPT，就创建多少个socket；
-		_ShowMessage("创建用于Accept的Socket失败！err=%d", WSAGetLastError());
+		showMessage("创建用于Accept的Socket失败！err=%d", WSAGetLastError());
 		return false;
 	}
 	//https://docs.microsoft.com/zh-cn/windows/win32/api/mswsock/nf-mswsock-acceptex
@@ -446,7 +433,7 @@ bool IocpServer::_PostAccept(IoContext* pIoContext)
 		int nErr = WSAGetLastError();
 		if (WSA_IO_PENDING != nErr)
 		{// Overlapped I/O operation is in progress.
-			_ShowMessage("投递 AcceptEx 失败，err=%d", nErr);
+			showMessage("投递 AcceptEx 失败，err=%d", nErr);
 			return false;
 		}
 	}
@@ -514,7 +501,7 @@ bool IocpServer::_DoAccept(SocketContext* pSoContext, IoContext* pIoContext)
 		SIO_KEEPALIVE_VALS, &alive_in, sizeof(alive_in), &alive_out,
 		sizeof(alive_out), &lpcbBytesReturned, NULL, NULL))
 	{
-		_ShowMessage("WSAIoctl() failed: %d\n", WSAGetLastError());
+		showMessage("WSAIoctl() failed: %d\n", WSAGetLastError());
 	}
 	OnConnectionAccepted(pNewSocketContext);
 
@@ -565,9 +552,9 @@ bool IocpServer::_DoFirstRecvWithData(IoContext* pIoContext)
 		addrLen + 16, addrLen + 16, (LPSOCKADDR*)&localAddr,
 		&localLen, (LPSOCKADDR*)&clientAddr, &remoteLen);
 	// 显示客户端信息
-	this->_ShowMessage("客户端 %s:%d 连入了!", inet_ntoa(clientAddr->sin_addr),
+	this->showMessage("客户端 %s:%d 连入了!", inet_ntoa(clientAddr->sin_addr),
 		ntohs(clientAddr->sin_port));
-	this->_ShowMessage("收到 %s:%d 信息：%s", inet_ntoa(clientAddr->sin_addr),
+	this->showMessage("收到 %s:%d 信息：%s", inet_ntoa(clientAddr->sin_addr),
 		ntohs(clientAddr->sin_port), pIoContext->m_wsaBuf.buf);
 
 	////////////////////////////////////////////////////////////////////////////////
@@ -576,7 +563,7 @@ bool IocpServer::_DoFirstRecvWithData(IoContext* pIoContext)
 	//	上的Context复制出来一份，为新连入的Socket新建一个SocketContext
 	//	为新接入的套接创建SocketContext，并将该套接字绑定到完成端口
 	SocketContext* pNewSocketContext = new SocketContext;
-	this->_ShowMessage("pNewSocketContext=%p", pNewSocketContext);
+	this->showMessage("pNewSocketContext=%p", pNewSocketContext);
 	//加入到ContextList中去(需要统一管理，方便释放资源)
 	this->_AddToContextList(pNewSocketContext);
 	pNewSocketContext->m_Socket = pIoContext->m_acceptSocket;
@@ -618,11 +605,11 @@ bool IocpServer::_DoFirstRecvWithoutData(IoContext* pIoContext)
 	SOCKADDR_IN clientAddr = { 0 };
 	int addrLen = sizeof(clientAddr);
 	getpeername(pIoContext->m_acceptSocket, (SOCKADDR*)&clientAddr, &addrLen);
-	this->_ShowMessage("客户端 %s:%d 连入了", inet_ntoa(clientAddr.sin_addr),
+	this->showMessage("客户端 %s:%d 连入了", inet_ntoa(clientAddr.sin_addr),
 		ntohs(clientAddr.sin_port));
 	// 2. 这里需要注意，这里传入的这个是ListenSocket上的Context，
 	SocketContext* pNewSocketContext = new SocketContext;
-	this->_ShowMessage("pNewSocketContext=%p", pNewSocketContext);
+	this->showMessage("pNewSocketContext=%p", pNewSocketContext);
 	//加入到ContextList中去(需要统一管理，方便释放资源)
 	this->_AddToContextList(pNewSocketContext);
 	pNewSocketContext->m_Socket = pIoContext->m_acceptSocket;
@@ -672,7 +659,7 @@ bool IocpServer::_PostRecv(SocketContext* pSoContext, IoContext* pIoContext)
 		int nErr = WSAGetLastError();
 		if (WSA_IO_PENDING != nErr)
 		{// Overlapped I/O operation is in progress.
-			this->_ShowMessage("投递WSARecv失败！err=%d", nErr);
+			this->showMessage("投递WSARecv失败！err=%d", nErr);
 			this->_DoClose(pSoContext);
 			return false;
 		}
@@ -720,7 +707,7 @@ bool IocpServer::_PostSend(SocketContext* pSoContext, IoContext* pIoContext)
 		int nErr = WSAGetLastError();
 		if (WSA_IO_PENDING != nErr)
 		{// Overlapped I/O operation is in progress.
-			this->_ShowMessage("投递WSASend失败！err=%d", nErr);
+			this->showMessage("投递WSASend失败！err=%d", nErr);
 			this->_DoClose(pSoContext);
 			return false;
 		}
@@ -769,7 +756,7 @@ bool IocpServer::_AssociateWithIOCP(SocketContext* pSoContext)
 		m_hIOCompletionPort, (DWORD)pSoContext, 0);
 	if (nullptr == hTemp) // ERROR_INVALID_PARAMETER=87L
 	{
-		this->_ShowMessage("绑定IOCP失败。err=%d", GetLastError());
+		this->showMessage("绑定IOCP失败。err=%d", GetLastError());
 		this->_DoClose(pSoContext);
 		return false;
 	}
@@ -884,14 +871,14 @@ bool IocpServer::HandleError(SocketContext* pSoContext, const DWORD& dwErr)
 		// 确认客户端是否还活着...
 		if (!_IsSocketAlive(pSoContext->m_Socket))
 		{
-			this->_ShowMessage("检测到客户端异常退出！");
+			this->showMessage("检测到客户端异常退出！");
 			this->OnConnectionClosed(pSoContext);
 			this->_DoClose(pSoContext);
 			return true;
 		}
 		else
 		{
-			this->_ShowMessage("网络操作超时！重试中..");
+			this->showMessage("网络操作超时！重试中..");
 			return true;
 		}
 	}
@@ -902,32 +889,49 @@ bool IocpServer::HandleError(SocketContext* pSoContext, const DWORD& dwErr)
 		this->OnConnectionError(pSoContext, dwErr);
 		if (!this->_DoClose(pSoContext))
 		{
-			this->_ShowMessage("检测到异常！");
+			this->showMessage("检测到异常！");
 		}
 		return true;
 	}
 	else
 	{//ERROR_OPERATION_ABORTED=995L
-		this->_ShowMessage("完成端口操作出错，线程退出。err=%d", dwErr);
+		this->showMessage("完成端口操作出错，线程退出。err=%d", dwErr);
 		this->OnConnectionError(pSoContext, dwErr);
 		this->_DoClose(pSoContext);
 		return false;
 	}
 }
 
+void print_datetime()
+{
+	SYSTEMTIME sysTime = { 0 };
+	GetLocalTime(&sysTime);
+	printf("%4d-%02d-%02d %02d:%02d:%02d.%03d：",
+		sysTime.wYear, sysTime.wMonth, sysTime.wDay,
+		sysTime.wHour, sysTime.wMinute, sysTime.wSecond,
+		sysTime.wMilliseconds);
+}
+
 /////////////////////////////////////////////////////////////////////
 // 在主界面中显示提示信息
-void IocpServer::_ShowMessage(const char* szFormat, ...)
+void IocpServer::showMessage(const char* szFormat, ...)
 {
-	if (m_LogFunc)
+	//printf(".");
+	//return;
+	__try
 	{
-		char buff[256] = { 0 };
-		va_list arglist;
+		EnterCriticalSection(&m_csLog);
+		print_datetime();
 		// 处理变长参数
+		va_list arglist;
 		va_start(arglist, szFormat);
-		vsnprintf(buff, sizeof(buff), szFormat, arglist);
+		vprintf(szFormat, arglist);
 		va_end(arglist);
-
-		m_LogFunc(string(buff));
+		printf("\n");
+		return;
+	}
+	__finally
+	{
+		::LeaveCriticalSection(&m_csLog);
 	}
 }

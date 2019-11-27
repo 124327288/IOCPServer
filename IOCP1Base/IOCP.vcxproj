@@ -148,14 +148,30 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="HTTP\CommonLib.h" />
+    <ClInclude Include="HTTP\HttpCodec.h" />
+    <ClInclude Include="HTTP\HttpMessage.h" />
+    <ClInclude Include="HTTP\HttpStatus.h" />
+    <ClInclude Include="IOCP\Addr.h" />
+    <ClInclude Include="IOCP\Buffer.h" />
+    <ClInclude Include="IOCP\BufferSlice.h" />
     <ClInclude Include="IOCP\IocpServer.h" />
+    <ClInclude Include="IOCP\LockGuard.h" />
+    <ClInclude Include="IOCP\Network.h" />
     <ClInclude Include="IOCP\PerIoContext.h" />
     <ClInclude Include="IOCP\PerSocketContext.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="HTTP\CommonLib.cpp" />
+    <ClCompile Include="HTTP\HttpCodec.cpp" />
+    <ClCompile Include="HTTP\HttpMessage.cpp" />
+    <ClCompile Include="IOCP\Addr.cpp" />
+    <ClCompile Include="IOCP\Buffer.cpp" />
+    <ClCompile Include="IOCP\BufferSlice.cpp" />
     <ClCompile Include="IOCP\IocpServer.cpp" />
+    <ClCompile Include="IOCP\Network.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

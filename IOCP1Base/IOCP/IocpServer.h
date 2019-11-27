@@ -58,7 +58,6 @@ when the completed I/O operation was started.
 //============================================================
 //				CIocpModel类定义
 //============================================================
-typedef void (*LOG_FUNC)(const string& strInfo);
 // 工作者线程的线程参数
 class IocpServer;
 struct WorkerThreadParam
@@ -71,6 +70,7 @@ struct WorkerThreadParam
 class IocpServer
 {
 private:
+	CRITICAL_SECTION m_csLog; // 用于Worker线程同步的互斥量
 	bool m_bIsShutdown; //关闭时，退出工作线程
 	short m_listenPort; //服务器开启的监听端口号
 	LONG m_nMaxConnClientCnt; //最大客户端数量
@@ -95,13 +95,6 @@ public:
 	IocpServer(short listenPort = DEFAULT_PORT, int maxConnectionCount = 10000);
 	~IocpServer(void);
 
-	// 加载Socket库
-	bool LoadSocketLib();
-	// 卸载Socket库，彻底完事
-	void UnloadSocketLib() noexcept
-	{
-		WSACleanup();
-	}
 	// 启动服务器
 	bool Start();
 	//	停止服务器
@@ -172,10 +165,5 @@ protected:
 	//线程函数，为IOCP请求服务的工作者线程
 	static DWORD WINAPI _WorkerThread(LPVOID lpParam);
 	//在主界面中显示信息
-	virtual void _ShowMessage(const char* szFormat, ...);
-
-public:
-	void SetLogFunc(LOG_FUNC fn) { m_LogFunc = fn; }
-protected:
-	LOG_FUNC m_LogFunc;
+	virtual void showMessage(const char* szFormat, ...);
 };

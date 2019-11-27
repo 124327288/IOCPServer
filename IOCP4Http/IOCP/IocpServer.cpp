@@ -48,7 +48,7 @@ bool IocpServer::Start()
 	showMessage("Start()");
 	if (!Network::init())
 	{
-		showMessage("network initial failed");
+		showMessage("network init failed!");
 		return false;
 	}
 	if (!createListenSocket(m_listenPort))
@@ -781,7 +781,7 @@ void IocpServer::notifyWriteCompleted()
 	showMessage("notifyWriteCompleted()");
 }
 
-void print_time()
+void print_datetime()
 {
 	SYSTEMTIME sysTime = { 0 };
 	GetLocalTime(&sysTime);
@@ -791,6 +791,8 @@ void print_time()
 		sysTime.wMilliseconds);
 }
 
+/////////////////////////////////////////////////////////////////////
+// 在主界面中显示提示信息
 void IocpServer::showMessage(const char* szFormat, ...)
 {
 	//printf(".");
@@ -798,7 +800,7 @@ void IocpServer::showMessage(const char* szFormat, ...)
 	__try
 	{
 		EnterCriticalSection(&m_csLog);
-		print_time();
+		print_datetime();
 		// 处理变长参数
 		va_list arglist;
 		va_start(arglist, szFormat);

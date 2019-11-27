@@ -19,6 +19,7 @@ struct AcceptIoContext;
 class IocpServer
 {
 private:
+	CRITICAL_SECTION m_csLog; // 用于Worker线程同步的互斥量
 	bool m_bIsShutdown; //关闭时，退出工作线程
 	short m_listenPort; //服务器开启的监听端口号
 	LONG m_nMaxConnClientCnt; //最大客户端数量
@@ -34,7 +35,6 @@ private:
 	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
 	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
 	std::vector<AcceptIoContext*> m_acceptIoCtxList; //接收连接的IO上下文列表
-	CRITICAL_SECTION m_csLog; // 用于Worker线程同步的互斥量
 
 public:
 	IocpServer(short listenPort = DEFAULT_PORT, int maxConnCount = MAX_CONN_COUNT);

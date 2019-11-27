@@ -9,6 +9,9 @@
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
     </Filter>
+    <Filter Include="HTTP">
+      <UniqueIdentifier>{4755bd98-a9e5-4eca-847e-fc6ea02b449b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -26,6 +29,33 @@
     <ClInclude Include="IOCP\IocpServer.h">
       <Filter>IOCP</Filter>
     </ClInclude>
+    <ClInclude Include="HTTP\CommonLib.h">
+      <Filter>HTTP</Filter>
+    </ClInclude>
+    <ClInclude Include="HTTP\HttpCodec.h">
+      <Filter>HTTP</Filter>
+    </ClInclude>
+    <ClInclude Include="HTTP\HttpMessage.h">
+      <Filter>HTTP</Filter>
+    </ClInclude>
+    <ClInclude Include="HTTP\HttpStatus.h">
+      <Filter>HTTP</Filter>
+    </ClInclude>
+    <ClInclude Include="IOCP\Addr.h">
+      <Filter>IOCP</Filter>
+    </ClInclude>
+    <ClInclude Include="IOCP\Buffer.h">
+      <Filter>IOCP</Filter>
+    </ClInclude>
+    <ClInclude Include="IOCP\BufferSlice.h">
+      <Filter>IOCP</Filter>
+    </ClInclude>
+    <ClInclude Include="IOCP\LockGuard.h">
+      <Filter>IOCP</Filter>
+    </ClInclude>
+    <ClInclude Include="IOCP\Network.h">
+      <Filter>IOCP</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -35,6 +65,27 @@
       <Filter>MyServer</Filter>
     </ClCompile>
     <ClCompile Include="IOCP\IocpServer.cpp">
+      <Filter>IOCP</Filter>
+    </ClCompile>
+    <ClCompile Include="HTTP\CommonLib.cpp">
+      <Filter>HTTP</Filter>
+    </ClCompile>
+    <ClCompile Include="HTTP\HttpCodec.cpp">
+      <Filter>HTTP</Filter>
+    </ClCompile>
+    <ClCompile Include="HTTP\HttpMessage.cpp">
+      <Filter>HTTP</Filter>
+    </ClCompile>
+    <ClCompile Include="IOCP\Addr.cpp">
+      <Filter>IOCP</Filter>
+    </ClCompile>
+    <ClCompile Include="IOCP\Buffer.cpp">
+      <Filter>IOCP</Filter>
+    </ClCompile>
+    <ClCompile Include="IOCP\BufferSlice.cpp">
+      <Filter>IOCP</Filter>
+    </ClCompile>
+    <ClCompile Include="IOCP\Network.cpp">
       <Filter>IOCP</Filter>
     </ClCompile>
   </ItemGroup>
