@@ -75,8 +75,8 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 			break;
 		}
 		else
-		{//数据不完整
-			showMessage("tryDecode unfinished");
+		{//解析完了或者数据不完整
+			//showMessage("tryDecode unfinished");
 			break;
 		}
 	}

@@ -432,7 +432,7 @@ bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 	* 解决方法：为了防止恶意连接，accpetEx不接收用户数据，
 	* 	只接收地址（没办法，接口调用必须提供缓冲区）
 	*/
-	DWORD dwRecvByte;
+	DWORD dwRecvByte = 0;
 	LPOVERLAPPED pOverlapped = &pAcceptIoCtx->m_Overlapped;
 	LPFN_ACCEPTEX lpfnAcceptEx = (LPFN_ACCEPTEX)m_lpfnAcceptEx;
 	constexpr int ACCEPT_ADDRS_SIZE = sizeof(SOCKADDR_IN) + 16;
