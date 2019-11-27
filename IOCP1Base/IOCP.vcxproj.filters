@@ -23,7 +23,7 @@
     <ClInclude Include="IOCP\PerSocketContext.h">
       <Filter>IOCP</Filter>
     </ClInclude>
-    <ClInclude Include="IOCP\IocpModel.h">
+    <ClInclude Include="IOCP\IocpServer.h">
       <Filter>IOCP</Filter>
     </ClInclude>
   </ItemGroup>
@@ -34,7 +34,7 @@
     <ClCompile Include="Main.cpp">
       <Filter>MyServer</Filter>
     </ClCompile>
-    <ClCompile Include="IOCP\IocpModel.cpp">
+    <ClCompile Include="IOCP\IocpServer.cpp">
       <Filter>IOCP</Filter>
     </ClCompile>
   </ItemGroup>
