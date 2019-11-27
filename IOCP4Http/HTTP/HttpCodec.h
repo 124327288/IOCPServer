@@ -19,6 +19,7 @@ struct HttpCodec
 	bool informUnimplemented();
 	bool informUnsupported();
 	string responseMessage(string s, HttpStatus status);
+	string responseHeader(string header, long len);
 	string responseChunkedHeader();
 	string responseChunkedBegin(long len);
 	string responseChunkedEnd();

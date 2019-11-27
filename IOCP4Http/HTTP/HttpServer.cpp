@@ -36,20 +36,28 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 				string rspMsg = codec.responseMessage("hello", HttpStatus::ok);
 				Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 			}
-			else //if (codec.m_req.m_url == "/favicon.ico")
+			else 
 			{
 				char* pBuf = NULL;
 				string dirFile = "./files" + codec.m_req.m_url;
 				int len = readFile(dirFile, pBuf);
 				if (len > 0 && pBuf)
 				{
-					string rspMsg = codec.responseChunkedHeader();
+					/*string rspMsg = codec.responseChunkedHeader();
 					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 					rspMsg = codec.responseChunkedBegin(len); //开始
 					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 					Send(pClientCtx, (PBYTE)pBuf, len); //实际数据
 					rspMsg = codec.responseChunkedEnd(); //结束
+					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());*/
+					string contentType = "application/x-zip-compressed";
+					if (codec.m_req.m_url == "/favicon.ico")
+					{
+						contentType = "image/x-icon";
+					}
+					string rspMsg = codec.responseHeader(contentType, len);
 					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
+					Send(pClientCtx, (PBYTE)pBuf, len); //实际数据
 					delete[]pBuf;
 				}
 				else

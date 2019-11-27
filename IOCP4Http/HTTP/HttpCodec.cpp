@@ -92,9 +92,32 @@ string HttpCodec::responseMessage(string s, HttpStatus status)
 	return os.str();
 }
 
+string HttpCodec::responseHeader(string contentType, long len)
+{
+	ostringstream os;
+	os << "HTTP/1.1 200 OK";
+	os << "Content-Type: " << contentType << "\r\n";
+	os << "Content-Length: " << len << "\r\n";
+	os << "Accept-Ranges: bytes\r\n";
+	os << "\r\n";
+	return os.str();
+}
+
 string HttpCodec::responseChunkedHeader()
 {
 	return string("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
+	/*"HTTP/1.1 200 OK\r\n"
+	"Content-Length: %d\r\n"
+	"Accept-Ranges: bytes\r\n"
+	"Content-Type: image/x-icon\r\n"
+	"Content-Type: application/x-zip-compressed\r\n"
+	"Last-Modified: Mon, 07 Oct 2019 08:25:37 GMT\r\n"
+	"Expires: Thu, 28 Nov 2019 02:52:20 GMT\r\n"
+	"Date: Wed, 27 Nov 2019 01:30:29 GMT\r\n"
+	"Cache-Control: max-age=604800\r\n"
+	"Server: Microsoft-IIS/7.5\r\n"
+	"ETag: \"7667f4cbe87cd51:0\"\r\n"
+	"\r\n"*/
 }
 
 string HttpCodec::responseChunkedBegin(long len)
