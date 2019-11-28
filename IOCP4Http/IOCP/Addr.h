@@ -5,13 +5,14 @@
 
 class Addr
 {
+private:
+	SOCKADDR_IN m_addr;
+
 public:
 	Addr() {}
 	Addr(const SOCKADDR_IN& addr);
 	std::string toString() const;
-
-private:
-	SOCKADDR_IN m_addr;
+	LPSOCKADDR_IN GetAddr();
 };
 
 #endif // !__ADDR_H__

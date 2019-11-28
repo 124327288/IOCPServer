@@ -5,21 +5,30 @@
 #include "PerSocketContext.h"
 #include <iostream>
 
+
+SocketContext::SocketContext(const SOCKET& socket,
+	ULONG nPendingIoCnt ) : m_socket(socket)
+	, m_nPendingIoCnt(nPendingIoCnt)
+{
+	SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
+}
+
 ListenContext::ListenContext(short port, const std::string& ip)
 {
-    SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
-    m_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, ip.c_str(), &m_addr.sin_addr);
+	SOCKADDR_IN addr; //¼àÌýµØÖ·	
+    SecureZeroMemory(&addr, sizeof(SOCKADDR_IN));
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
     //m_addr.sin_addr.s_addr = inet_addr(ip.c_str());
-    m_addr.sin_port = htons(port);
+    addr.sin_port = htons(port);
+	m_addr = addr;
     m_socket = Network::socket();
     assert(SOCKET_ERROR != m_socket);
 }
 
 ClientContext::ClientContext(const SOCKET& socket) :
-    m_socket(socket), m_recvIoCtx(new RecvIoContext())
+	SocketContext(socket), m_recvIoCtx(new RecvIoContext())
     , m_sendIoCtx(new SendIoContext())
-    , m_nPendingIoCnt(0)
 {
     SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
     InitializeCriticalSection(&m_csLock);

@@ -17,7 +17,7 @@ HttpServer::~HttpServer()
 	showMessage("~HttpServer()");
 }
 
-void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
+void HttpServer::OnRecvCompleted(ClientContext* pClientCtx)
 {
 	showMessage("notifyPackageReceived() pClientCtx=%p", pClientCtx);
 	HttpCodec codec(pClientCtx->m_inBuf.getBuffer(),
@@ -34,7 +34,7 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 			if (codec.m_req.m_url == "/")
 			{
 				string rspMsg = codec.responseMessage("hello", HttpStatus::ok);
-				Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
+				SendData(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 			}
 			else 
 			{
@@ -56,14 +56,14 @@ void HttpServer::notifyPackageReceived(ClientContext* pClientCtx)
 						contentType = "image/x-icon";
 					}
 					string rspMsg = codec.responseHeader(contentType, len);
-					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
-					Send(pClientCtx, (PBYTE)pBuf, len); //实际数据
+					SendData(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
+					SendData(pClientCtx, (PBYTE)pBuf, len); //实际数据
 					delete[]pBuf;
 				}
 				else
 				{
 					string rspMsg = codec.responseMessage("", HttpStatus::not_found);
-					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
+					SendData(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 				}
 			}
 			pClientCtx->m_inBuf.remove(pClientCtx->m_inBuf.getBufferLen());

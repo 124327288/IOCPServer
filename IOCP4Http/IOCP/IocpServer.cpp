@@ -103,7 +103,7 @@ bool IocpServer::Stop()
 	return true;
 }
 
-bool IocpServer::Send(ClientContext* pClientCtx, PBYTE pData, UINT len)
+bool IocpServer::SendData(ClientContext* pClientCtx, PBYTE pData, UINT len)
 {
 	LockGuard lk(&pClientCtx->m_csLock);
 	showMessage("Send() pClientCtx=%p len=%d", pClientCtx, len);
@@ -134,7 +134,7 @@ bool IocpServer::Send(ClientContext* pClientCtx, PBYTE pData, UINT len)
 	return true;
 }
 
-unsigned WINAPI IocpServer::IocpWorkerThread(LPVOID arg)
+DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID arg)
 {
 	IocpServer* pThis = static_cast<IocpServer*>(arg);
 	LPOVERLAPPED    lpOverlapped = nullptr;
@@ -290,7 +290,8 @@ bool IocpServer::createListenSocket(short listenPort)
 	{
 		return false;
 	}
-	if (SOCKET_ERROR == Network::bind(m_pListenCtx->m_socket, &m_pListenCtx->m_addr))
+	if (SOCKET_ERROR == Network::bind(m_pListenCtx->m_socket, 
+		m_pListenCtx->m_addr.GetAddr()))
 	{
 		showMessage("bind failed");
 		return false;
@@ -323,7 +324,8 @@ bool IocpServer::createIocpWorker()
 	GetSystemInfo(&sysInfo);
 	for (DWORD i = 0; i < sysInfo.dwNumberOfProcessors; ++i)
 	{
-		hWorker = (HANDLE)_beginthreadex(NULL, 0, IocpWorkerThread, this, 0, NULL);
+		hWorker = (HANDLE)::CreateThread(0, 0, iocpWorkerThread,
+			(void*)this, 0, NULL); 
 		if (NULL == hWorker)
 		{
 			return false;
@@ -538,7 +540,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	//开启心跳机制
 	//setKeepAlive(pClientCtx, &pAcceptIoCtx->m_overlapped);
 	//pClientCtx->appendToBuffer((PBYTE)pBuf, dwBytesTransferred);
-	notifyNewConnection(pClientCtx);
+	OnConnectionAccepted(pClientCtx);
 	//notifyPackageReceived(pClientCtx);
 	//将客户端加入连接列表
 	addClientCtx(pClientCtx);
@@ -559,7 +561,7 @@ bool IocpServer::handleRecv(ClientContext* pClientCtx,
 		pClientCtx, pClientCtx->m_socket, lpOverlapped);
 	RecvIoContext* pRecvIoCtx = (RecvIoContext*)lpOverlapped;
 	pClientCtx->appendToBuffer(pRecvIoCtx->m_recvBuf, dwBytesTransferred);
-	notifyPackageReceived(pClientCtx);
+	OnRecvCompleted(pClientCtx);
 
 	//投递recv请求
 	PostResult result = postRecv(pClientCtx);
@@ -581,7 +583,7 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 	pClientCtx->m_outBuf.remove(dwBytesTransferred);
 	if (0 == pClientCtx->m_outBuf.getBufferLen())
 	{
-		notifyWriteCompleted();
+		OnSendCompleted();
 		pClientCtx->m_outBuf.clear();
 
 		if (!pClientCtx->m_outBufQueue.empty())
@@ -643,7 +645,7 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 	}
 	if (INVALID_SOCKET != s)
 	{
-		notifyDisconnected(s, peerAddr);
+		OnConnectionClosed(s, peerAddr);
 		if (!Network::setLinger(s))
 		{
 			return;
@@ -734,39 +736,34 @@ void IocpServer::releaseClientCtx(ClientContext* pClientCtx)
 void IocpServer::echo(ClientContext* pClientCtx)
 {
 	showMessage("echo() pClientCtx=%p", pClientCtx);
-	Send(pClientCtx, pClientCtx->m_inBuf.getBuffer(),
+	SendData(pClientCtx, pClientCtx->m_inBuf.getBuffer(),
 		pClientCtx->m_inBuf.getBufferLen());
 	pClientCtx->m_inBuf.remove(pClientCtx->m_inBuf.getBufferLen());
 }
 
-void IocpServer::notifyNewConnection(ClientContext* pClientCtx)
+void IocpServer::OnConnectionAccepted(ClientContext* pClientCtx)
 {
 	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
-	showMessage("notifyNewConnection() pClientCtx=%p, s=%d, %s",
+	showMessage("OnConnectionAccepted() pClientCtx=%p, s=%d, %s",
 		pClientCtx, pClientCtx->m_socket,
 		pClientCtx->m_addr.toString().c_str());
 }
 
-void IocpServer::notifyDisconnected(SOCKET s, Addr addr)
+void IocpServer::OnConnectionClosed(SOCKET s, Addr addr)
 {
-	showMessage("notifyDisconnected() s=%d, %s", s, addr.toString().c_str());
+	showMessage("OnConnectionClosed() s=%d, %s", s, addr.toString().c_str());
 }
 
-void IocpServer::notifyPackageReceived(ClientContext* pClientCtx)
+void IocpServer::OnRecvCompleted(ClientContext* pClientCtx)
 {
-	showMessage("notifyPackageReceived() pClientCtx=%p, s=%d",
+	showMessage("OnRecvCompleted() pClientCtx=%p, s=%d",
 		pClientCtx, pClientCtx->m_socket);
 	echo(pClientCtx);
 }
 
-void IocpServer::notifyWritePackage()
+void IocpServer::OnSendCompleted()
 {
-	showMessage("notifyWritePackage()");
-}
-
-void IocpServer::notifyWriteCompleted()
-{
-	showMessage("notifyWriteCompleted()");
+	showMessage("OnSendCompleted()");
 }
 
 void print_datetime()

@@ -62,7 +62,9 @@ public:
 	
 	bool Start(); // 启动服务器	
 	bool Stop(); //	停止服务器
-	bool Send(ClientContext* pClientCtx, PBYTE pData, UINT len);
+
+	// 向指定客户端发送数据
+	bool SendData(ClientContext* pClientCtx, PBYTE pData, UINT len);
 
 	// 获取当前连接数
 	int GetConnectCount() { return m_nConnClientCnt; }
@@ -70,19 +72,16 @@ public:
 	unsigned int GetPort() { return m_listenPort; }
 
 protected:
-	//必须要static _beginthreadex才能访问
-	static unsigned WINAPI IocpWorkerThread(LPVOID arg);
-
 	bool getAcceptExPtr();
 	bool getAcceptExSockAddrs();
+	bool createIocpWorker();
+	bool exitIocpWorker();
+	bool createListenSocket(short listenPort);
+	bool initAcceptIoContext(ListenContext* pListenContext);
+	bool clearAcceptIoContext(ListenContext* pListenContext);
 	bool setKeepAlive(ClientContext* pClientCtx, 
 		LPOVERLAPPED lpOverlapped, int time = 1, int interval = 1);
 
-	bool createListenSocket(short listenPort);
-	bool createIocpWorker();
-	bool exitIocpWorker();
-	bool initAcceptIoContext(ListenContext* pListenContext);
-	bool clearAcceptIoContext(ListenContext* pListenContext);
 
 	bool postAccept(AcceptIoContext* pIoCtx);
 	PostResult postRecv(ClientContext* pClientCtx);
@@ -111,12 +110,16 @@ protected:
 
 	void echo(ClientContext* pClientCtx);
 
-	//回调函数
-	virtual void notifyNewConnection(ClientContext* pClientCtx);
-	//virtual void notifyDisconnected(ClientContext* pClientCtx);
-	virtual void notifyDisconnected(SOCKET s, Addr addr);
-	virtual void notifyPackageReceived(ClientContext* pClientCtx);
-	virtual void notifyWritePackage();
-	virtual void notifyWriteCompleted();
+	//线程函数，为IOCP请求服务的工作者线程
+	static DWORD WINAPI iocpWorkerThread(LPVOID lpParam);
+	//在主界面中显示信息
 	virtual void showMessage(const char* szFormat, ...);
+
+	// 事件通知函数(派生类重载此族函数)
+	virtual void OnConnectionAccepted(ClientContext* pClientCtx);
+	//virtual void OnConnectionClosed(ClientContext* pClientCtx);
+	virtual void OnConnectionClosed(SOCKET s, Addr addr);
+	virtual void OnRecvCompleted(ClientContext* pClientCtx);
+	//virtual void notifyWritePackage();
+	virtual void OnSendCompleted();
 };

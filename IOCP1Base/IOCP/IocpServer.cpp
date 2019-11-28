@@ -46,7 +46,7 @@ IocpServer::~IocpServer(void)
 	第二个参数lpNumberOfBytes表示本次套接字传输的字节数，
 参数lpCompletionKey和lpOverlapped包含重要的信息，请查询MSDN文档；
 *********************************************************************/
-DWORD WINAPI IocpServer::_WorkerThread(LPVOID lpParam)
+DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 {
 	IocpServer* pIocpModel = (IocpServer*)lpParam;
 	pIocpModel->showMessage("工作者线程，ID:%d", GetCurrentThreadId());
@@ -248,7 +248,7 @@ bool IocpServer::_InitializeIOCP()
 	DWORD nThreadID = 0;
 	for (int i = 0; i < m_nWorkerCnt; i++)
 	{
-		HANDLE hWorker = ::CreateThread(0, 0, _WorkerThread,
+		HANDLE hWorker = ::CreateThread(0, 0, iocpWorkerThread,
 			(void*)this, 0, &nThreadID);
 		m_hWorkerThreads.emplace_back(hWorker);
 	}

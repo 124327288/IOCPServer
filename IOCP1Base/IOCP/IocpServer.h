@@ -78,19 +78,6 @@ public:
 	// 获取当前监听端口
 	unsigned int GetPort() { return m_listenPort; }
 
-	// 事件通知函数(派生类重载此族函数)
-	virtual void OnConnectionAccepted(SocketContext* pSoContext){};
-	virtual void OnConnectionClosed(SocketContext* pSoContext) {};
-	virtual void OnConnectionError(SocketContext* pSoContext, int error) {};
-	virtual void OnRecvCompleted(SocketContext* pSoContext, IoContext* pIoContext) 
-	{
-		SendData(pSoContext, pIoContext); // 接收数据完成，原封不动发回去
-	};
-	virtual void OnSendCompleted(SocketContext* pSoContext, IoContext* pIoContext) 
-	{
-		RecvData(pSoContext, pIoContext); // 发送数据完成，继续接收数据
-	};
-
 protected:
 	// 初始化IOCP
 	bool _InitializeIOCP();
@@ -128,7 +115,20 @@ protected:
 	//判断客户端Socket是否已经断开
 	bool _IsSocketAlive(SOCKET s) noexcept;
 	//线程函数，为IOCP请求服务的工作者线程
-	static DWORD WINAPI _WorkerThread(LPVOID lpParam);
+	static DWORD WINAPI iocpWorkerThread(LPVOID lpParam);
 	//在主界面中显示信息
 	virtual void showMessage(const char* szFormat, ...);
+
+	// 事件通知函数(派生类重载此族函数)
+	virtual void OnConnectionAccepted(SocketContext* pSoContext){};
+	virtual void OnConnectionClosed(SocketContext* pSoContext) {};
+	virtual void OnConnectionError(SocketContext* pSoContext, int error) {};
+	virtual void OnRecvCompleted(SocketContext* pSoContext, IoContext* pIoContext) 
+	{
+		SendData(pSoContext, pIoContext); // 接收数据完成，原封不动发回去
+	};
+	virtual void OnSendCompleted(SocketContext* pSoContext, IoContext* pIoContext) 
+	{
+		RecvData(pSoContext, pIoContext); // 发送数据完成，继续接收数据
+	};
 };
