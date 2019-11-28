@@ -15,3 +15,8 @@ std::string Addr::toString() const
     os << peerAddrBuf << ":" << ntohs(m_addr.sin_port);
     return os.str();
 }
+
+LPSOCKADDR_IN Addr::GetAddr()
+{
+	return &m_addr;
+}

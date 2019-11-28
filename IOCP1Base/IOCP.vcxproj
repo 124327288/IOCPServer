@@ -172,6 +172,8 @@
     <ClCompile Include="IOCP\BufferSlice.cpp" />
     <ClCompile Include="IOCP\IocpServer.cpp" />
     <ClCompile Include="IOCP\Network.cpp" />
+    <ClCompile Include="IOCP\PerIoContext.cpp" />
+    <ClCompile Include="IOCP\PerSocketContext.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

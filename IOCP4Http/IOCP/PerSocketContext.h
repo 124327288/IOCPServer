@@ -5,6 +5,11 @@
 #include <queue>
 
 
+//============================================================================
+//	单句柄数据结构体定义(用于每一个完成端口，也就是每一个Socket的参数)
+//============================================================================
+//每个SOCKET对应的数据结构(调用GetQueuedCompletionStatus传入)：-
+//SOCKET，该SOCKET对应的客户端地址，作用在该SOCKET操作集合(对应结构IoContext)；
 struct SocketContext
 {
 	SOCKET m_socket; //socket连接

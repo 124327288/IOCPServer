@@ -88,5 +88,11 @@
     <ClCompile Include="IOCP\Network.cpp">
       <Filter>IOCP</Filter>
     </ClCompile>
+    <ClCompile Include="IOCP\PerIoContext.cpp">
+      <Filter>IOCP</Filter>
+    </ClCompile>
+    <ClCompile Include="IOCP\PerSocketContext.cpp">
+      <Filter>IOCP</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

@@ -8,7 +8,7 @@ bool Network::init()
     return ::WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
 }
 
-bool Network::unInit()
+bool Network::deinit()
 {
     ::WSACleanup();
     return true;

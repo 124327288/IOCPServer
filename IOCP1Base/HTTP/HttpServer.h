@@ -9,8 +9,8 @@ public:
     ~HttpServer();
 	
 protected:
-    void notifyPackageReceived(ClientContext* pClientCtx) override;
-    //void notifyDisconnected(SOCKET s, Addr addr) override;
+    void OnRecvCompleted(ClientContext* pClientCtx) override;
+    //void OnConnectionClosed(SOCKET s, Addr addr) override;
 };
 
 #endif // !__HTTP_SERVER_H__
