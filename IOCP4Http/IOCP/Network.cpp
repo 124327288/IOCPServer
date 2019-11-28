@@ -8,7 +8,7 @@ bool Network::init()
     return ::WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
 }
 
-bool Network::unInit()
+bool Network::deinit()
 {
     ::WSACleanup();
     return true;
@@ -16,8 +16,8 @@ bool Network::unInit()
 
 SOCKET Network::socket()
 {
-    return ::WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, 
-		NULL, 0, WSA_FLAG_OVERLAPPED);
+    return ::WSASocket(AF_INET, SOCK_STREAM, 
+		IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 }
 
 int Network::bind(SOCKET s, const LPSOCKADDR_IN pAddr)

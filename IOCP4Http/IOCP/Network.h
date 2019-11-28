@@ -5,7 +5,7 @@
 struct Network
 {
     static bool init();
-    static bool unInit();
+    static bool deinit();
 
     static SOCKET socket();
     static int bind(SOCKET s, const LPSOCKADDR_IN pAddr);
