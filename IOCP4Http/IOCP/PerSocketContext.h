@@ -1,5 +1,4 @@
-#ifndef __CLIENT_CONTEXT_H__
-#define __CLIENT_CONTEXT_H__
+#pragma once
 #include "Addr.h"
 #include "Buffer.h"
 #include "PerIoContext.h"
@@ -11,7 +10,10 @@
 struct ListenContext
 {
 	SOCKET m_socket; //监听socket
-	SOCKADDR_IN m_addr; //监听地址
+	SOCKADDR_IN m_addr; //监听地址	
+	ULONG m_nPendingIoCnt;
+	//接收连接的IO上下文列表
+	std::vector<AcceptIoContext*> m_acceptIoCtxList; 
 
 	ListenContext(short port, const std::string& ip = "0.0.0.0");
 };
@@ -25,14 +27,13 @@ struct ClientContext
 {
 	SOCKET m_socket; //客户端socket
 	Addr m_addr; //客户端地址
+	ULONG m_nPendingIoCnt;	
 	RecvIoContext* m_recvIoCtx;
 	SendIoContext* m_sendIoCtx;	
 	std::queue<Buffer> m_outBufQueue;
 	Buffer m_inBuf;
 	Buffer m_outBuf;
 	CRITICAL_SECTION m_csLock; //保护ClientContext
-	//Avoids Access Violation，该值为0时才能释放ClientContext
-	ULONG m_nPendingIoCnt;
 	
 	ClientContext(const SOCKET& socket = INVALID_SOCKET);	
 	~ClientContext(); //socket由IocpServer释放
@@ -41,6 +42,3 @@ struct ClientContext
 	void appendToBuffer(PBYTE pInBuf, size_t len);
 	void appendToBuffer(const std::string& inBuf);
 };
-
-#endif // !__CLIENT_CONTEXT_H__
-

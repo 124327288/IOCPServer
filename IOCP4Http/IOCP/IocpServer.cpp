@@ -55,11 +55,11 @@ bool IocpServer::Start()
 	{
 		return false;
 	}
-	if (!createIocpWorker())
+	if (!initAcceptIoContext(m_pListenCtx))
 	{
 		return false;
 	}
-	if (!initAcceptIoContext())
+	if (!createIocpWorker())
 	{
 		return false;
 	}
@@ -73,20 +73,13 @@ bool IocpServer::Stop()
 	//同步等待所有工作线程退出
 	exitIocpWorker();
 	//关闭工作线程句柄
-	for_each(m_hWorkerThreads.begin(), m_hWorkerThreads.end(),
-		[](const HANDLE& h) { CloseHandle(h); });
-	for_each(m_acceptIoCtxList.begin(), m_acceptIoCtxList.end(),
-		[](AcceptIoContext* mAcceptIoCtx) {
-			CancelIo((HANDLE)mAcceptIoCtx->m_acceptSocket);
-			closesocket(mAcceptIoCtx->m_acceptSocket);
-			mAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
-			while (!HasOverlappedIoCompleted(&mAcceptIoCtx->m_Overlapped))
-			{
-				Sleep(1);
-			}
-			delete mAcceptIoCtx;
-		});
-	m_acceptIoCtxList.clear();
+	std::vector<HANDLE>::iterator it;
+	for (it = m_hWorkerThreads.begin();
+		it != m_hWorkerThreads.end(); it++)
+	{
+		HANDLE h = *it;
+		CloseHandle(h);
+	}
 	if (m_hExitEvent)
 	{
 		CloseHandle(m_hExitEvent);
@@ -99,6 +92,7 @@ bool IocpServer::Stop()
 	}
 	if (m_pListenCtx)
 	{
+		clearAcceptIoContext(m_pListenCtx);
 		closesocket(m_pListenCtx->m_socket);
 		m_pListenCtx->m_socket = INVALID_SOCKET;
 		delete m_pListenCtx;
@@ -106,41 +100,6 @@ bool IocpServer::Stop()
 	}
 	removeAllClientCtxs();
 	showMessage("Stop() done\n");
-	return true;
-}
-
-bool IocpServer::Shutdown()
-{
-	showMessage("Shutdown()");
-	m_bIsShutdown = true;
-	int ret = CancelIoEx((HANDLE)m_pListenCtx->m_socket, NULL);
-	if (0 == ret)
-	{
-		showMessage("CancelIoEx failed with error: %d", WSAGetLastError());
-		return false;
-	}
-	closesocket(m_pListenCtx->m_socket);
-	m_pListenCtx->m_socket = INVALID_SOCKET;
-
-	for_each(m_acceptIoCtxList.begin(), m_acceptIoCtxList.end(),
-		[](AcceptIoContext* pAcceptIoCtx)
-		{
-			int ret = CancelIoEx((HANDLE)pAcceptIoCtx->m_acceptSocket,
-				&pAcceptIoCtx->m_Overlapped);
-			if (0 == ret)
-			{
-				printf("CancelIoEx failed with error: %d", WSAGetLastError());
-				return; //这个是匿名函数
-			}
-			closesocket(pAcceptIoCtx->m_acceptSocket);
-			pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
-			while (!HasOverlappedIoCompleted(&pAcceptIoCtx->m_Overlapped))
-			{
-				Sleep(1);
-			}
-			delete pAcceptIoCtx;
-		});
-	m_acceptIoCtxList.clear();
 	return true;
 }
 
@@ -273,7 +232,7 @@ bool IocpServer::getAcceptExSockAddrs()
 	int ret = WSAIoctl(m_pListenCtx->m_socket,
 		SIO_GET_EXTENSION_FUNCTION_POINTER,
 		&GuidAddrs, sizeof(GuidAddrs),
-		&pfnGetAcceptExSockAddrs, 
+		&pfnGetAcceptExSockAddrs,
 		sizeof(pfnGetAcceptExSockAddrs),
 		&dwBytes, NULL, NULL);
 	if (SOCKET_ERROR == ret)
@@ -319,7 +278,7 @@ bool IocpServer::createListenSocket(short listenPort)
 	showMessage("createListenClient() listenPort=%d pListenCtx=%p, s=%d",
 		listenPort, m_pListenCtx, m_pListenCtx->m_socket);
 	//创建完成端口
-	m_hIOCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, 
+	m_hIOCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
 		NULL, 0, 0); //NumberOfConcurrentThreads
 	if (NULL == m_hIOCompletionPort)
 	{
@@ -398,14 +357,14 @@ bool IocpServer::exitIocpWorker()
 	return true;
 }
 
-bool IocpServer::initAcceptIoContext()
+bool IocpServer::initAcceptIoContext(ListenContext* pListenContext)
 {
 	showMessage("initAcceptIoContext()");
 	//投递accept请求
 	for (int i = 0; i < MAX_POST_ACCEPT; ++i)
 	{
 		AcceptIoContext* pAcceptIoCtx = new AcceptIoContext();
-		m_acceptIoCtxList.emplace_back(pAcceptIoCtx);
+		pListenContext->m_acceptIoCtxList.emplace_back(pAcceptIoCtx);
 		if (!postAccept(pAcceptIoCtx))
 		{
 			return false;
@@ -413,6 +372,35 @@ bool IocpServer::initAcceptIoContext()
 	}
 	return true;
 }
+
+bool IocpServer::clearAcceptIoContext(ListenContext* pListenContext)
+{
+	showMessage("clearAcceptIoContext()");
+	std::vector<AcceptIoContext*>::iterator it;
+	for (it = pListenContext->m_acceptIoCtxList.begin();
+		it != pListenContext->m_acceptIoCtxList.end(); it++)
+	{
+		AcceptIoContext* pAcceptIoCtx = *it;
+		int bRet = CancelIoEx((HANDLE)pAcceptIoCtx->m_acceptSocket,
+			&pAcceptIoCtx->m_Overlapped);
+		//int bRet = CancelIo((HANDLE)pAcceptIoCtx->m_acceptSocket);
+		if (!bRet)
+		{
+			printf("CancelIoEx failed with error: %d", WSAGetLastError());
+			//continue; // return; //这个是匿名函数
+		}
+		closesocket(pAcceptIoCtx->m_acceptSocket);
+		pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
+		while (!HasOverlappedIoCompleted(&pAcceptIoCtx->m_Overlapped))
+		{
+			Sleep(1);
+		}
+		delete pAcceptIoCtx;
+	}
+	pListenContext->m_acceptIoCtxList.clear();
+	return true;
+}
+
 
 bool IocpServer::postAccept(AcceptIoContext* pAcceptIoCtx)
 {
@@ -755,7 +743,7 @@ void IocpServer::notifyNewConnection(ClientContext* pClientCtx)
 {
 	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
 	showMessage("notifyNewConnection() pClientCtx=%p, s=%d, %s",
-		pClientCtx, pClientCtx->m_socket, 
+		pClientCtx, pClientCtx->m_socket,
 		pClientCtx->m_addr.toString().c_str());
 }
 

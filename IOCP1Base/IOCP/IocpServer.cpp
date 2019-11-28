@@ -13,7 +13,6 @@ IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
 	, m_hExitEvent(nullptr)
 	, m_nWorkerCnt(0)
 	, m_nConnClientCnt(0)
-	, m_strIP(DEFAULT_IP)
 	, m_lpfnAcceptEx(nullptr)
 	, m_lpfnGetAcceptExSockAddrs(nullptr)
 	, m_pListenCtx(nullptr)
@@ -49,12 +48,8 @@ IocpServer::~IocpServer(void)
 *********************************************************************/
 DWORD WINAPI IocpServer::_WorkerThread(LPVOID lpParam)
 {
-	WorkerThreadParam* pParam = (WorkerThreadParam*)lpParam;
-	IocpServer* pIocpModel = (IocpServer*)pParam->pIocpModel;
-	const int nThreadNo = pParam->nThreadNo;
-	const int nThreadId = pParam->nThreadId;
-
-	pIocpModel->showMessage("工作者线程，No:%d, ID:%d", nThreadNo, nThreadId);
+	IocpServer* pIocpModel = (IocpServer*)lpParam;
+	pIocpModel->showMessage("工作者线程，ID:%d", GetCurrentThreadId());
 	//循环处理请求，直到接收到Shutdown信息为止
 	while (WAIT_OBJECT_0 != WaitForSingleObject(pIocpModel->m_hExitEvent, 0))
 	{
@@ -130,9 +125,8 @@ DWORD WINAPI IocpServer::_WorkerThread(LPVOID lpParam)
 			}//if
 		}//if
 	}//while
-	pIocpModel->showMessage("工作者线程 %d 号退出", nThreadNo);
-	// 释放线程参数
-	RELEASE_POINTER(lpParam);
+	pIocpModel->showMessage("工作者线程退出，ID:%d",
+		GetCurrentThreadId());
 	return 0;
 }
 
@@ -170,7 +164,7 @@ bool IocpServer::Start()
 
 ////////////////////////////////////////////////////////////////////
 //	开始发送系统退出消息，退出完成端口和线程资源
-void IocpServer::Stop()
+bool IocpServer::Stop()
 {
 	if (m_pListenCtx != nullptr
 		&& m_pListenCtx->m_Socket != INVALID_SOCKET)
@@ -197,6 +191,7 @@ void IocpServer::Stop()
 	{
 		m_pListenCtx = nullptr;
 	}
+	return true;
 }
 
 bool IocpServer::SendData(SocketContext* pSoContext, char* data, int size)
@@ -253,13 +248,9 @@ bool IocpServer::_InitializeIOCP()
 	DWORD nThreadID = 0;
 	for (int i = 0; i < m_nWorkerCnt; i++)
 	{
-		WorkerThreadParam* pThreadParams = new WorkerThreadParam;
-		pThreadParams->pIocpModel = this;
-		pThreadParams->nThreadNo = i + 1;
 		HANDLE hWorker = ::CreateThread(0, 0, _WorkerThread,
-			(void*)pThreadParams, 0, &nThreadID);
+			(void*)this, 0, &nThreadID);
 		m_hWorkerThreads.emplace_back(hWorker);
-		pThreadParams->nThreadId = nThreadID;
 	}
 	this->showMessage("建立WorkerThread %d 个", m_nWorkerCnt);
 	return true;
@@ -813,27 +804,6 @@ void IocpServer::_ClearContextList()
 //================================================================================
 //				 其他辅助函数定义
 //================================================================================
-////////////////////////////////////////////////////////////////////
-// 获得本机的IP地址
-string IocpServer::GetLocalIP()
-{
-	// 获得本机主机名
-	char hostname[MAX_PATH] = { 0 };
-	gethostname(hostname, MAX_PATH);
-	struct hostent FAR* lpHostEnt = gethostbyname(hostname);
-	if (lpHostEnt == NULL)
-	{
-		return DEFAULT_IP;
-	}
-	// 取得IP地址列表中的第一个为返回的IP(因为一台主机可能会绑定多个IP)
-	const LPSTR lpAddr = lpHostEnt->h_addr_list[0];
-	// 将IP地址转化成字符串形式
-	struct in_addr inAddr;
-	memmove(&inAddr, lpAddr, 4);
-	m_strIP = string(inet_ntoa(inAddr));
-	return m_strIP;
-}
-
 ///////////////////////////////////////////////////////////////////
 // 获得本机中处理器的数量
 int IocpServer::_GetNumOfProcessors() noexcept
