@@ -16,8 +16,8 @@ bool Network::deinit()
 
 SOCKET Network::socket()
 {
-    return ::WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, 
-		NULL, 0, WSA_FLAG_OVERLAPPED);
+    return ::WSASocket(AF_INET, SOCK_STREAM, 
+		IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 }
 
 int Network::bind(SOCKET s, const LPSOCKADDR_IN pAddr)

@@ -25,11 +25,11 @@ constexpr int WORKER_THREADS_PER_PROCESSOR= 2; // CPU每核的线程数
 constexpr int MAX_CONN_COUNT = 100000; //最大并发连接数
 constexpr int DEFAULT_PORT = 10240; //默认端口号
 
-#define RELEASE_ARRAY(x) {if(x != nullptr ){delete[] x;x=nullptr;}} 
+//#define RELEASE_ARRAY(x) {if(x != nullptr ){delete[] x;x=nullptr;}} 
 #define RELEASE_POINTER(x) {if(x != nullptr ){delete x;x=nullptr;}} 
 #define RELEASE_HANDLE(x) {if(x != nullptr && x!=INVALID_HANDLE_VALUE)\
-	{ CloseHandle(x);x = nullptr;}} // 释放句柄宏
-#define RELEASE_SOCKET(x) {if(x != NULL && x !=INVALID_SOCKET) \
+	{ CloseHandle(x);x = INVALID_HANDLE_VALUE;}} // 释放句柄宏
+#define RELEASE_SOCKET(x) {if(x != nullptr && x !=INVALID_SOCKET) \
 	{ closesocket(x);x=INVALID_SOCKET;}} // 释放Socket宏
 
 //============================================================
@@ -49,14 +49,13 @@ private:
 	std::vector<HANDLE> m_hWorkerThreads; //工作线程句柄列表
 	LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExSockAddrs;
 	LPFN_ACCEPTEX m_lpfnAcceptEx; //acceptEx函数指针
-	SocketContext* m_pListenCtx; // 用于监听的Socket的Context信息
+	ListenContext* m_pListenCtx; // 用于监听的Socket的Context信息
 	CRITICAL_SECTION m_csClientList; // 用于Worker线程同步的互斥量
-	//std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
-	//std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
-	vector<SocketContext*> m_arrayClientContext; // 客户端Socket的Context信息 
+	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
+	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
+	//vector<SocketContext*> m_arrayClientContext; // 客户端Socket的Context信息 
 	LONG acceptPostCount; // 当前投递的的Accept数量
 	LONG errorCount; // 当前的错误数量
-
 
 public:
 	IocpServer(short listenPort = DEFAULT_PORT, int maxConnCount = MAX_CONN_COUNT);
@@ -68,10 +67,7 @@ public:
 	bool Stop(); //	停止服务器
 
 	// 向指定客户端发送数据
-	bool SendData(SocketContext* pSoContext, char* data, int size);
-	bool SendData(SocketContext* pSoContext, IoContext* pIoContext);
-	// 继续接收指定客户端的数据
-	bool RecvData(SocketContext* pSoContext, IoContext* pIoContext);
+	bool SendData(ClientContext* pClientCtx, PBYTE pData, UINT len);
 
 	// 获取当前连接数
 	int GetConnectCount() { return m_nConnClientCnt; }
@@ -79,56 +75,49 @@ public:
 	unsigned int GetPort() { return m_listenPort; }
 
 protected:
-	// 初始化IOCP
-	bool _InitializeIOCP();
-	// 初始化Socket
-	bool _InitializeListenSocket();
-	// 最后释放资源
-	void _DeInitialize();
-	//投递AcceptEx请求
-	bool _PostAccept(IoContext* pIoContext);
-	//在有客户端连入的时候，进行处理
-	bool _DoAccept(SocketContext* pSoContext, IoContext* pIoContext);
-	//连接成功时，根据第一次是否接收到来自客户端的数据进行调用
-	bool _DoFirstRecvWithData(IoContext* pIoContext);
-	bool _DoFirstRecvWithoutData(IoContext* pIoContext);
-	//投递WSARecv用于接收数据
-	bool _PostRecv(SocketContext* pSoContext, IoContext* pIoContext);
-	//数据到达，数组存放在pIoContext参数中
-	bool _DoRecv(SocketContext* pSoContext, IoContext* pIoContext);
-	//投递WSASend，用于发送数据
-	bool _PostSend(SocketContext* pSoContext, IoContext* pIoContext);
-	bool _DoSend(SocketContext* pSoContext, IoContext* pIoContext);
-	bool _DoClose(SocketContext* pSoContext);
+	bool initSocket(short listenPort);  // 初始化Socket	
+	bool initIOCP(ListenContext * pListenCtx);// 初始化IOCP
+	bool initIocpWorker(); // 创建工作者线程
+	bool exitIocpWorker(); // 退出工作者线程
+	void deinitialize(); // 释放资源	
+		
+	// Used to avoid access violation.
+	void enterIoLoop(SocketContext* pSocketCtx);
+	int exitIoLoop(SocketContext* pSocketCtx);
+	//投递AcceptEx、WSARecv、WSASend请求
+	bool postAccept(AcceptIoContext* pIoCtx);
+	bool postRecv(ClientContext* pClientCtx, IoContext* pIoContext);
+	bool postSend(ClientContext* pClientCtx, IoContext* pIoContext);
+	//在有客户端连入的时候，进行处理 // 处理完成端口上的错误
+	bool handleError(ClientContext* pClientCtx, const DWORD& dwErr);
+	bool handleAccept(ClientContext* pClientCtx, IoContext* pIoContext);
+	bool handleRecv(ClientContext* pClientCtx, IoContext* pIoContext);
+	bool handleSend(ClientContext* pClientCtx, IoContext* pIoContext);
+	bool handleClose(ClientContext* pClientCtx);
 	//将客户端socket的相关信息存储到数组中
 	void _AddToContextList(SocketContext* pSoContext);
 	//将客户端socket的信息从数组中移除
 	void _RemoveContext(SocketContext* pSoContext);
 	// 清空客户端socket信息
 	void _ClearContextList();
-	// 将句柄绑定到完成端口中
-	bool _AssociateWithIOCP(SocketContext* pSoContext);
-	// 处理完成端口上的错误
-	bool HandleError(SocketContext* pSoContext, const DWORD& dwErr);
-	//获得本机的处理器数量
-	int _GetNumOfProcessors() noexcept;
+
+	bool setKeepAlive(ClientContext* pClientCtx, 
+		LPOVERLAPPED lpOverlapped, int time = 1, int interval = 1);
 	//判断客户端Socket是否已经断开
-	bool _IsSocketAlive(SOCKET s) noexcept;
+	bool isSocketAlive(SOCKET s) noexcept;
+	void echo(ClientContext* pClientCtx);
+
 	//线程函数，为IOCP请求服务的工作者线程
 	static DWORD WINAPI iocpWorkerThread(LPVOID lpParam);
+	
 	//在主界面中显示信息
 	virtual void showMessage(const char* szFormat, ...);
 
 	// 事件通知函数(派生类重载此族函数)
-	virtual void OnConnectionAccepted(SocketContext* pSoContext){};
-	virtual void OnConnectionClosed(SocketContext* pSoContext) {};
-	virtual void OnConnectionError(SocketContext* pSoContext, int error) {};
-	virtual void OnRecvCompleted(SocketContext* pSoContext, IoContext* pIoContext) 
-	{
-		SendData(pSoContext, pIoContext); // 接收数据完成，原封不动发回去
-	};
-	virtual void OnSendCompleted(SocketContext* pSoContext, IoContext* pIoContext) 
-	{
-		RecvData(pSoContext, pIoContext); // 发送数据完成，继续接收数据
-	};
+	virtual void OnConnectionAccepted(ClientContext* pClientCtx);
+	virtual void OnConnectionClosed(ClientContext* pClientCtx);
+	virtual void OnConnectionClosed(SOCKET s, Addr addr);
+	virtual void OnConnectionError(ClientContext* pClientCtx, int error);
+	virtual void OnRecvCompleted(ClientContext* pClientCtx);
+	virtual void OnSendCompleted(ClientContext* pClientCtx);
 };
