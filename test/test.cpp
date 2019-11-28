@@ -83,7 +83,7 @@ public:
 	}
 };
 
-int main()
+int main4()
 {
 	queue<A> qu;
 
@@ -102,4 +102,5 @@ int main()
 	qu.pop();
 
 	cout << "end of main()" << endl;
+	return 0;
 }
