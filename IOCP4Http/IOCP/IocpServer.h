@@ -21,7 +21,7 @@ Notes:
 constexpr int EXIT_THREAD = 0; //工作线程退出标志
 constexpr int MAX_POST_ACCEPT = 10; //最大投递AcceptEx请求的数量
 constexpr int MAX_LISTEN_SOCKET = SOMAXCONN; // 同时监听的SOCKET数量
-constexpr int WORKER_THREADS_PER_PROCESSOR= 2; // CPU每核的线程数
+constexpr int WORKER_THREADS_PER_PROCESSOR = 2; // CPU每核的线程数
 constexpr int MAX_CONN_COUNT = 100000; //最大并发连接数
 constexpr int DEFAULT_PORT = 10240; //默认端口号
 
@@ -62,7 +62,7 @@ public:
 	IocpServer& operator=(const IocpServer&) = delete;
 	IocpServer(const IocpServer&) = delete;
 	virtual ~IocpServer();
-	
+
 	bool Start(); // 启动服务器	
 	bool Stop(); //	停止服务器
 
@@ -76,25 +76,23 @@ public:
 
 protected:
 	bool initSocket(short listenPort);  // 初始化Socket	
-	bool initIOCP(ListenContext * pListenCtx);// 初始化IOCP
+	bool initIOCP(ListenContext* pListenCtx);// 初始化IOCP
 	bool initIocpWorker(); // 创建工作者线程
 	bool exitIocpWorker(); // 退出工作者线程
 	void deinitialize(); // 释放资源	
-		
+
 	// Used to avoid access violation.
 	void enterIoLoop(SocketContext* pSocketCtx);
 	int exitIoLoop(SocketContext* pSocketCtx);
 	//投递AcceptEx、WSARecv、WSASend请求
-	bool postAccept(AcceptIoContext* pIoCtx);
+	bool postAccept(ListenContext* pListenCtx, AcceptIoContext* pIoCtx);
 	PostResult postRecv(ClientContext* pClientCtx);
 	PostResult postSend(ClientContext* pClientCtx);
 	//在有客户端连入的时候，进行处理 // 处理完成端口上的错误
 	bool handleError(ClientContext* pClientCtx, const DWORD& dwErr);
-	bool handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferred);
-	bool handleRecv(ClientContext* pClientCtx, LPOVERLAPPED lpOverlapped,
-		DWORD dwBytesTransferred);
-	bool handleSend(ClientContext* pClientCtx, LPOVERLAPPED lpOverlapped,
-		DWORD dwBytesTransferred);
+	bool handleAccept(ListenContext* pListenCtx, IoContext* pIoCtx, DWORD dwBytes);
+	bool handleRecv(ClientContext* pClientCtx, IoContext* pIoCtx, DWORD dwBytes);
+	bool handleSend(ClientContext* pClientCtx, IoContext* pIoCtx, DWORD dwBytes);
 	bool handleClose(ClientContext* pClientCtx);
 
 
@@ -108,7 +106,7 @@ protected:
 	ClientContext* allocateClientCtx(SOCKET s);
 	void releaseClientCtx(ClientContext* pClientCtx);
 
-	bool setKeepAlive(ClientContext* pClientCtx, 
+	bool setKeepAlive(ClientContext* pClientCtx,
 		LPOVERLAPPED lpOverlapped, int time = 1, int interval = 1);
 	//判断客户端Socket是否已经断开
 	bool isSocketAlive(SOCKET s) noexcept;
@@ -116,7 +114,7 @@ protected:
 
 	//线程函数，为IOCP请求服务的工作者线程
 	static DWORD WINAPI iocpWorkerThread(LPVOID lpParam);
-	
+
 	//在主界面中显示信息
 	virtual void showMessage(const char* szFormat, ...);
 
