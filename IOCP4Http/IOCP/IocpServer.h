@@ -44,7 +44,7 @@ private:
 	LONG m_nMaxConnClientCnt; //最大客户端数量
 	LONG m_nConnClientCnt; //已连接客户端数量
 	LONG m_nWorkerCnt; //IO工作线程数量
-	HANDLE m_hIOCompletionPort; //完成端口的句柄
+	HANDLE m_hIOCP; //完成端口的句柄
 	HANDLE m_hExitEvent; //退出线程事件，为了能够更好的退出
 	std::vector<HANDLE> m_hWorkerThreads; //工作线程句柄列表
 	LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExSockAddrs;
@@ -120,6 +120,5 @@ protected:
 	//virtual void OnConnectionClosed(ClientContext* pClientCtx);
 	virtual void OnConnectionClosed(SOCKET s, Addr addr);
 	virtual void OnRecvCompleted(ClientContext* pClientCtx);
-	//virtual void notifyWritePackage();
-	virtual void OnSendCompleted();
+	virtual void OnSendCompleted(ClientContext* pClientCtx);
 };

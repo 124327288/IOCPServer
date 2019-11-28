@@ -15,7 +15,7 @@ using namespace std;
 IocpServer::IocpServer(short listenPort, int maxConnCount) :
 	m_bIsShutdown(false), m_listenPort(listenPort)
 	, m_nMaxConnClientCnt(maxConnCount)
-	, m_hIOCompletionPort(nullptr)
+	, m_hIOCP(nullptr)
 	, m_hExitEvent(nullptr)
 	, m_nWorkerCnt(0)
 	, m_nConnClientCnt(0)
@@ -85,10 +85,10 @@ bool IocpServer::Stop()
 		CloseHandle(m_hExitEvent);
 		m_hExitEvent = NULL;
 	}
-	if (m_hIOCompletionPort)
+	if (m_hIOCP)
 	{
-		CloseHandle(m_hIOCompletionPort);
-		m_hIOCompletionPort = NULL;
+		CloseHandle(m_hIOCP);
+		m_hIOCP = NULL;
 	}
 	if (m_pListenCtx)
 	{
@@ -146,7 +146,7 @@ DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID arg)
 	pThis->showMessage("IocpWorkerThread() tid=%d", GetCurrentThreadId());
 	while (WAIT_OBJECT_0 != WaitForSingleObject(pThis->m_hExitEvent, 0))
 	{
-		ret = GetQueuedCompletionStatus(pThis->m_hIOCompletionPort, &dwBytesTransferred,
+		ret = GetQueuedCompletionStatus(pThis->m_hIOCP, &dwBytesTransferred,
 			&lpCompletionKey, &lpOverlapped, dwMilliSeconds);
 		pThis->showMessage("IocpWorkerThread() tid=%d, pClientCtx=%p, pIoCtx=%p",
 			GetCurrentThreadId(), lpCompletionKey, lpOverlapped);
@@ -278,15 +278,15 @@ bool IocpServer::createListenSocket(short listenPort)
 	showMessage("createListenClient() listenPort=%d pListenCtx=%p, s=%d",
 		listenPort, m_pListenCtx, m_pListenCtx->m_socket);
 	//创建完成端口
-	m_hIOCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
+	m_hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
 		NULL, 0, 0); //NumberOfConcurrentThreads
-	if (NULL == m_hIOCompletionPort)
+	if (NULL == m_hIOCP)
 	{
 		return false;
 	}
 	//关联监听socket和完成端口，这里将this指针作为completionKey给完成端口
 	if (NULL == CreateIoCompletionPort((HANDLE)m_pListenCtx->m_socket,
-		m_hIOCompletionPort, (ULONG_PTR)this, 0))
+		m_hIOCP, (ULONG_PTR)this, 0))
 	{
 		return false;
 	}
@@ -345,7 +345,7 @@ bool IocpServer::exitIocpWorker()
 	for (int i = 0; i < m_nWorkerCnt; ++i)
 	{
 		//通知工作线程退出
-		ret = PostQueuedCompletionStatus(m_hIOCompletionPort,
+		ret = PostQueuedCompletionStatus(m_hIOCP,
 			0, EXIT_THREAD, NULL);
 		if (FALSE == ret)
 		{
@@ -531,7 +531,7 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	//先投递，避免下面绑定失败，还没有投递，会导致投递数减少
 	postAccept(pAcceptIoCtx); //投递一个新的accpet请求
 	if (NULL == CreateIoCompletionPort((HANDLE)pClientCtx->m_socket,
-		m_hIOCompletionPort, (ULONG_PTR)pClientCtx, 0))
+		m_hIOCP, (ULONG_PTR)pClientCtx, 0))
 	{
 		InterlockedDecrement(&m_nConnClientCnt);
 		return false;
@@ -541,7 +541,6 @@ bool IocpServer::handleAccept(LPOVERLAPPED lpOverlapped, DWORD dwBytesTransferre
 	//setKeepAlive(pClientCtx, &pAcceptIoCtx->m_overlapped);
 	//pClientCtx->appendToBuffer((PBYTE)pBuf, dwBytesTransferred);
 	OnConnectionAccepted(pClientCtx);
-	//notifyPackageReceived(pClientCtx);
 	//将客户端加入连接列表
 	addClientCtx(pClientCtx);
 	//投递recv请求,这里invalid socket是否要关闭客户端？
@@ -583,7 +582,6 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 	pClientCtx->m_outBuf.remove(dwBytesTransferred);
 	if (0 == pClientCtx->m_outBuf.getBufferLen())
 	{
-		OnSendCompleted();
 		pClientCtx->m_outBuf.clear();
 
 		if (!pClientCtx->m_outBufQueue.empty())
@@ -595,6 +593,7 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 		{
 			//发送完毕，不能关socket
 			//handleClose(pClientCtx);
+			OnSendCompleted(pClientCtx);
 			releaseClientCtx(pClientCtx);
 		}
 	}
@@ -761,9 +760,10 @@ void IocpServer::OnRecvCompleted(ClientContext* pClientCtx)
 	echo(pClientCtx);
 }
 
-void IocpServer::OnSendCompleted()
+void IocpServer::OnSendCompleted(ClientContext* pClientCtx)
 {
-	showMessage("OnSendCompleted()");
+	showMessage("OnSendCompleted() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
 }
 
 void print_datetime()

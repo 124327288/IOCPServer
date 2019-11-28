@@ -19,7 +19,7 @@ HttpServer::~HttpServer()
 
 void HttpServer::OnRecvCompleted(ClientContext* pClientCtx)
 {
-	showMessage("notifyPackageReceived() pClientCtx=%p", pClientCtx);
+	showMessage("OnRecvCompleted() pClientCtx=%p", pClientCtx);
 	HttpCodec codec(pClientCtx->m_inBuf.getBuffer(),
 		pClientCtx->m_inBuf.getBufferLen());
 	while (true)

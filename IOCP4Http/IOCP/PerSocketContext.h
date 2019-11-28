@@ -2,10 +2,7 @@
 #include "Addr.h"
 #include "Buffer.h"
 #include "PerIoContext.h"
-#include <algorithm>
-#include <string>
 #include <queue>
-#include <map>
 
 
 struct SocketContext
@@ -16,6 +13,7 @@ struct SocketContext
 
 	SocketContext(const SOCKET& socket = INVALID_SOCKET, 
 		ULONG nPendingIoCnt = 0);
+	void reset();
 };
 
 struct ListenContext : public SocketContext
@@ -32,12 +30,13 @@ struct ListenContext : public SocketContext
 //SOCKET，该SOCKET对应的客户端地址，作用在该SOCKET操作集合(对应结构IoContext)；
 struct ClientContext : public SocketContext
 {
+	//为什么需要保护呢？感觉不需要保护啊！！！
 	CRITICAL_SECTION m_csLock; //保护ClientContext
 	RecvIoContext* m_recvIoCtx;
 	SendIoContext* m_sendIoCtx;	
 	std::queue<Buffer> m_outBufQueue;
-	Buffer m_inBuf;
 	Buffer m_outBuf;
+	Buffer m_inBuf;
 	
 	ClientContext(const SOCKET& socket = INVALID_SOCKET);	
 	~ClientContext(); //socket由IocpServer释放

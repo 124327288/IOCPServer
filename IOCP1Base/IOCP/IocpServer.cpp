@@ -9,7 +9,7 @@ using std::string;
 IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
 	m_bIsShutdown(false), m_listenPort(listenPort)
 	, m_nMaxConnClientCnt(maxConnectionCount)
-	, m_hIOCompletionPort(nullptr)
+	, m_hIOCP(nullptr)
 	, m_hExitEvent(nullptr)
 	, m_nWorkerCnt(0)
 	, m_nConnClientCnt(0)
@@ -56,7 +56,7 @@ DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 		DWORD dwBytesTransfered = 0;
 		OVERLAPPED* pOverlapped = nullptr;
 		SocketContext* pSoContext = nullptr;
-		const BOOL bRet = GetQueuedCompletionStatus(pIocpModel->m_hIOCompletionPort,
+		const BOOL bRet = GetQueuedCompletionStatus(pIocpModel->m_hIOCP,
 			&dwBytesTransfered, (PULONG_PTR)&pSoContext, &pOverlapped, INFINITE);		
 		IoContext* pIoContext = CONTAINING_RECORD(pOverlapped, 
 			IoContext, m_Overlapped); // 读取传入的参数
@@ -174,7 +174,7 @@ bool IocpServer::Stop()
 		for (int i = 0; i < m_nWorkerCnt; i++)
 		{
 			// 通知所有的完成端口操作退出
-			PostQueuedCompletionStatus(m_hIOCompletionPort,
+			PostQueuedCompletionStatus(m_hIOCP,
 				0, (DWORD)EXIT_THREAD, NULL);
 		}
 		// 等待所有的客户端资源退出
@@ -235,9 +235,9 @@ bool IocpServer::_InitializeIOCP()
 	//If this parameter is zero, the system allows as many 
 	//concurrently running threads as there are processors in the system.
 	//如果此参数为零，则系统允许的并发运行线程数量与系统中的处理器数量相同。
-	m_hIOCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
+	m_hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
 		nullptr, 0, 0); //NumberOfConcurrentThreads
-	if (nullptr == m_hIOCompletionPort)
+	if (nullptr == m_hIOCP)
 	{
 		this->showMessage("建立完成端口失败！错误代码: %d!", WSAGetLastError());
 		return false;
@@ -279,7 +279,7 @@ bool IocpServer::_InitializeListenSocket()
 
 	// 将Listen Socket绑定至完成端口中
 	if (NULL == CreateIoCompletionPort((HANDLE)m_pListenCtx->m_Socket,
-		m_hIOCompletionPort, (DWORD)m_pListenCtx, 0))
+		m_hIOCP, (DWORD)m_pListenCtx, 0))
 	{
 		this->showMessage("绑定失败！err=%d",
 			WSAGetLastError());
@@ -382,7 +382,7 @@ void IocpServer::_DeInitialize()
 	// 关闭系统退出事件句柄
 	RELEASE_HANDLE(m_hExitEvent);
 	// 关闭IOCP句柄
-	RELEASE_HANDLE(m_hIOCompletionPort);
+	RELEASE_HANDLE(m_hIOCP);
 	// 关闭监听Socket
 	RELEASE_POINTER(m_pListenCtx);
 	this->showMessage("释放资源完毕");
@@ -744,7 +744,7 @@ bool IocpServer::_AssociateWithIOCP(SocketContext* pSoContext)
 {
 	// 将用于和客户端通信的SOCKET绑定到完成端口中
 	HANDLE hTemp = CreateIoCompletionPort((HANDLE)pSoContext->m_Socket,
-		m_hIOCompletionPort, (DWORD)pSoContext, 0);
+		m_hIOCP, (DWORD)pSoContext, 0);
 	if (nullptr == hTemp) // ERROR_INVALID_PARAMETER=87L
 	{
 		this->showMessage("绑定IOCP失败。err=%d", GetLastError());
