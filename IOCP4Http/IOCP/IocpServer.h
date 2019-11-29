@@ -95,16 +95,14 @@ protected:
 	bool handleSend(ClientContext* pClientCtx, IoContext* pIoCtx, DWORD dwBytes);
 	bool handleClose(ClientContext* pClientCtx);
 
-
 	void closeClientSocket(ClientContext* pClientCtx);
 
 	//管理已连接客户端链表，线程安全
+	ClientContext* allocateClientCtx(SOCKET s);
 	void addClientCtx(ClientContext* pClientCtx);
+	void releaseClientCtx(ClientContext* pClientCtx);
 	void removeClientCtx(ClientContext* pClientCtx);
 	void removeAllClientCtxs();
-
-	ClientContext* allocateClientCtx(SOCKET s);
-	void releaseClientCtx(ClientContext* pClientCtx);
 
 	bool setKeepAlive(ClientContext* pClientCtx,
 		LPOVERLAPPED lpOverlapped, int time = 1, int interval = 1);
