@@ -1,6 +1,6 @@
 ﻿#include <iostream>
 using namespace std;
-
+#if 0
 void noMemoryToAlloc()
 {
 	cerr << "unable to satisfy request for memory\n";
@@ -56,6 +56,7 @@ int main3()
 	cout << &s;
 	return 0;
 }
+#endif
 
 #include <queue>
 #include <string>
@@ -83,23 +84,23 @@ public:
 	}
 };
 
-int main4()
+int main()
 {
 	queue<A> qu;
 
-	A a1("a1");
-	A a2("a2");
-	A a3(a1);
+	//A a1("a1");
+	//A a2("a2");
+	//A a3(a1);
 
 	//qu.push(a1);
-	qu.emplace(a1);
+	//qu.emplace(a1);
 	//qu.push(A("a3"));
 	//qu.emplace(A("a3"));
 	qu.emplace("a3");
-	cout << qu.front().name << endl;
-	qu.pop();
-	cout << qu.front().name << endl;
-	qu.pop();
+	//cout << qu.front().name << endl;
+	//qu.pop();
+	//cout << qu.front().name << endl;
+	//qu.pop(); //pop时会析构
 
 	cout << "end of main()" << endl;
 	return 0;
