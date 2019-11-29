@@ -30,6 +30,7 @@ AcceptIoContext::AcceptIoContext(SOCKET acceptSocket)
 
 AcceptIoContext::~AcceptIoContext()
 {
+	RELEASE_SOCKET(m_acceptSocket);
 }
 
 void AcceptIoContext::ResetBuffer()
