@@ -38,7 +38,7 @@ SOCKADDR_IN Network::getsockname(SOCKET s)
 	int ret = ::getsockname(s, (PSOCKADDR)&addr, &addrLen);
 	if (SOCKET_ERROR == ret)
 	{
-		printf("getsockname failed with error: %d\n", WSAGetLastError());
+		printf("getsockname failed! err=%d\n", WSAGetLastError());
 	}
 	return addr[0];
 }
@@ -59,7 +59,7 @@ SOCKADDR_IN Network::getpeername(SOCKET s)
 	int ret = ::getpeername(s, (PSOCKADDR)&addr, &addrLen);
 	if (SOCKET_ERROR == ret)
 	{
-		printf("getpeername failed with error: %d\n", WSAGetLastError());
+		printf("getpeername failed! err=%d\n", WSAGetLastError());
 	}
 	return addr[0];
 }
@@ -71,7 +71,7 @@ bool Network::setKeepAlive(SOCKET s, bool on)
 		sizeof(DWORD)); //保持激活，长连接；发送“保持活动”包。
 	if (SOCKET_ERROR == ret)
 	{
-		printf("setsockopt failed with error: %d\n", WSAGetLastError());
+		printf("setsockopt failed! err=%d\n", WSAGetLastError());
 		return false;
 	}
 	return true;
@@ -86,7 +86,7 @@ bool Network::setLinger(SOCKET s, bool on, int timeoutSecs)
 		sizeof(LINGER)); //关闭时有未发送数据，则逗留。
 	if (SOCKET_ERROR == ret)
 	{
-		printf("setsockopt failed with error: %d\n", WSAGetLastError());
+		printf("setsockopt failed! err=%d\n", WSAGetLastError());
 		return false;
 	}
 	return true;
@@ -98,7 +98,7 @@ bool Network::updateAcceptContext(SOCKET listenSocket, SOCKET acceptSocket)
 		(char*)&listenSocket, sizeof(SOCKET)); //让accept的socket继承listen的属性
 	if (SOCKET_ERROR == ret)
 	{
-		printf("setsockopt failed with error: %d\n", WSAGetLastError());
+		printf("setsockopt failed! err=%d\n", WSAGetLastError());
 		return false;
 	}
 	return true;
