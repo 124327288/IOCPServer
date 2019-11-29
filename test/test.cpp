@@ -58,6 +58,7 @@ int main3()
 }
 #endif
 
+#include <list>
 #include <queue>
 #include <string>
 class A
@@ -86,7 +87,8 @@ public:
 
 int main()
 {
-	queue<A> qu;
+	list<A*> lst;
+	//queue<A> qu;
 
 	//A a1("a1");
 	//A a2("a2");
@@ -96,11 +98,23 @@ int main()
 	//qu.emplace(a1);
 	//qu.push(A("a3"));
 	//qu.emplace(A("a3"));
-	qu.emplace("a3");
+	//qu.emplace("a3");
 	//cout << qu.front().name << endl;
 	//qu.pop();
 	//cout << qu.front().name << endl;
 	//qu.pop(); //pop时会析构
+	A a4("a4"), a5("a5");
+	//c++11, return void()
+	lst.emplace_back(&a4);
+	//can add it again
+	lst.emplace_back(&a4);
+	//remove two element
+	//lst.remove(&a4);
+	lst.emplace_back(&a5);
+	list<A*>::iterator it = lst.end();
+	it = lst.erase(lst.begin(), lst.end());
+	//erase all
+	lst.clear();
 
 	cout << "end of main()" << endl;
 	return 0;
