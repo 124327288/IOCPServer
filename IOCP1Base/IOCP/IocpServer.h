@@ -53,9 +53,6 @@ private:
 	CRITICAL_SECTION m_csClientList; // 用于Worker线程同步的互斥量
 	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
 	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
-	//vector<SocketContext*> m_arrayClientContext; // 客户端Socket的Context信息 
-	LONG acceptPostCount; // 当前投递的的Accept数量
-	LONG errorCount; // 当前的错误数量
 
 public:
 	IocpServer(short listenPort = DEFAULT_PORT, int maxConnCount = MAX_CONN_COUNT);
@@ -85,7 +82,7 @@ protected:
 	void enterIoLoop(SocketContext* pSocketCtx);
 	int exitIoLoop(SocketContext* pSocketCtx);
 	//投递AcceptEx、WSARecv、WSASend请求
-	bool postAccept(ListenContext* pListenCtx, AcceptIoContext* pIoCtx);
+	PostResult postAccept(ListenContext* pListenCtx, AcceptIoContext* pIoCtx);
 	PostResult postRecv(ClientContext* pClientCtx);
 	PostResult postSend(ClientContext* pClientCtx);
 	//在有客户端连入的时候，进行处理 // 处理完成端口上的错误
@@ -118,7 +115,7 @@ protected:
 
 	// 事件通知函数(派生类重载此族函数)
 	virtual void OnConnectionAccepted(ClientContext* pClientCtx);
-	//virtual void OnConnectionClosed(ClientContext* pClientCtx);
+	virtual void OnConnectionClosed(ClientContext* pClientCtx);
 	virtual void OnConnectionClosed(SOCKET s, Addr addr);
 	virtual void OnConnectionError(ClientContext* pClientCtx, int error);
 	virtual void OnRecvCompleted(ClientContext* pClientCtx);

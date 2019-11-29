@@ -12,6 +12,7 @@ public:
 	Addr() {}
 	Addr(const SOCKADDR_IN& addr);
 	std::string toString() const;
+	operator std::string() const;
 	LPSOCKADDR_IN GetAddr();
 };
 

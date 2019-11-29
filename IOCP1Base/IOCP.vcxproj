@@ -151,6 +151,7 @@
     <ClInclude Include="HTTP\CommonLib.h" />
     <ClInclude Include="HTTP\HttpCodec.h" />
     <ClInclude Include="HTTP\HttpMessage.h" />
+    <ClInclude Include="HTTP\HttpServer.h" />
     <ClInclude Include="HTTP\HttpStatus.h" />
     <ClInclude Include="IOCP\Addr.h" />
     <ClInclude Include="IOCP\Buffer.h" />
@@ -167,6 +168,7 @@
     <ClCompile Include="HTTP\CommonLib.cpp" />
     <ClCompile Include="HTTP\HttpCodec.cpp" />
     <ClCompile Include="HTTP\HttpMessage.cpp" />
+    <ClCompile Include="HTTP\HttpServer.cpp" />
     <ClCompile Include="IOCP\Addr.cpp" />
     <ClCompile Include="IOCP\Buffer.cpp" />
     <ClCompile Include="IOCP\BufferSlice.cpp" />

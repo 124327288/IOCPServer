@@ -1,39 +1,8 @@
 #include "Network.h"
+#include "LockGuard.h"
+#include "PerIoContext.h"
+#include "PerSocketContext.h"
 #include "IocpServer.h"
-#include <algorithm>
-#include <string>
-
-using std::string;
-#pragma comment(lib, "WS2_32.lib")
-
-IocpServer::IocpServer(short listenPort, int maxConnectionCount) :
-	m_bIsShutdown(false), m_listenPort(listenPort)
-	, m_nMaxConnClientCnt(maxConnectionCount)
-	, m_hIOCP(nullptr)
-	, m_hExitEvent(nullptr)
-	, m_nWorkerCnt(0)
-	, m_nConnClientCnt(0)
-	, m_lpfnAcceptEx(nullptr)
-	, m_lpfnGetAcceptExSockAddrs(nullptr)
-	, m_pListenCtx(nullptr)
-	, acceptPostCount(0)
-{
-	InitializeCriticalSection(&m_csLog);
-	errorCount = 0;
-	if (!Network::init())
-	{
-		showMessage("初始化WinSock 2.2失败！");
-	}
-}
-
-IocpServer::~IocpServer(void)
-{
-	// 确保资源彻底释放
-	this->Stop();
-	Network::unInit();
-	showMessage("~IocpServer()");
-	DeleteCriticalSection(&m_csLog);
-}
 
 ///////////////////////////////////////////////////////////////////
 // 工作者线程： 为IOCP请求服务的工作者线程
@@ -48,265 +17,161 @@ IocpServer::~IocpServer(void)
 *********************************************************************/
 DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 {
-	IocpServer* pIocpModel = (IocpServer*)lpParam;
-	pIocpModel->showMessage("工作者线程，ID:%d", GetCurrentThreadId());
+	IocpServer* pThis = (IocpServer*)lpParam;
+	pThis->showMessage("工作者线程，ID:%d", GetCurrentThreadId());
 	//循环处理请求，直到接收到Shutdown信息为止
-	while (WAIT_OBJECT_0 != WaitForSingleObject(pIocpModel->m_hExitEvent, 0))
+	while (WAIT_OBJECT_0 != WaitForSingleObject(pThis->m_hExitEvent, 0))
 	{
-		DWORD dwBytesTransfered = 0;
+		DWORD dwBytesTransferred = 0;
 		OVERLAPPED* pOverlapped = nullptr;
 		SocketContext* pSoContext = nullptr;
-		const BOOL bRet = GetQueuedCompletionStatus(pIocpModel->m_hIOCP,
-			&dwBytesTransfered, (PULONG_PTR)&pSoContext, &pOverlapped, INFINITE);		
-		IoContext* pIoContext = CONTAINING_RECORD(pOverlapped, 
+		const BOOL bRet = GetQueuedCompletionStatus(pThis->m_hIOCP,
+			&dwBytesTransferred, (PULONG_PTR)&pSoContext, &pOverlapped, INFINITE);
+		pThis->showMessage("WorkerThread() tid=%d, pClientCtx=%p, pIoCtx=%p",
+			GetCurrentThreadId(), pSoContext, pOverlapped);
+		IoContext* pIoContext = CONTAINING_RECORD(pOverlapped,
 			IoContext, m_Overlapped); // 读取传入的参数
 		//接收EXIT_CODE退出标志，则直接退出
 		if (EXIT_THREAD == (DWORD)pSoContext)
-		{
+		{// 退出工作线程
+			pThis->showMessage("EXIT_THREAD");
 			break;
+		}
+		// shutdown状态则停止接受连接
+		if (pThis->m_bIsShutdown && pIoContext->m_PostType == PostType::ACCEPT)
+		{//???有啥用???
+			break; //continue;
 		}
 		if (!bRet)
 		{	//返回值为false，表示出错
 			const DWORD dwErr = GetLastError();
 			// 显示一下提示信息
-			if (!pIocpModel->HandleError(pSoContext, dwErr))
+			if (!pThis->handleError((ClientContext*)pSoContext, dwErr))
 			{
 				break;
 			}
 			continue;
 		}
-		else
+		// 判断是否有客户端断开了 //对端关闭
+		if ((0 == dwBytesTransferred)
+			&& (PostType::ACCEPT != pIoContext->m_PostType))
 		{
-			// 判断是否有客户端断开了
-			if ((0 == dwBytesTransfered)
-				&& (PostType::RECV == pIoContext->m_PostType
-					|| PostType::SEND == pIoContext->m_PostType))
-			{
-				pIocpModel->OnConnectionClosed(pSoContext);
-				//pIocpModel->_ShowMessage("客户端 %s:%d 断开连接",
-				//	inet_ntoa(pSoContext->m_ClientAddr.sin_addr),
-				//	ntohs(pSoContext->m_ClientAddr.sin_port));
-				// 释放掉对应的资源
-				pIocpModel->_DoClose(pSoContext);
-				continue;
-			}
-			else
-			{
-				switch (pIoContext->m_PostType)
-				{
-				case PostType::ACCEPT:
-				{
-					// 为了增加代码可读性，这里用专门的_DoAccept函数进行处理连入请求
-					pIoContext->m_nTotalBytes = dwBytesTransfered;
-					pIocpModel->_DoAccept(pSoContext, pIoContext);
-				}
-				break;
+			pThis->OnConnectionClosed((ClientContext*)pSoContext);
+			pThis->handleClose((ClientContext*)pSoContext);
+			continue;
+		}
+		switch (pIoContext->m_PostType)
+		{
+		case PostType::ACCEPT:
+			pThis->handleAccept((ListenContext*)pSoContext,
+				pIoContext, dwBytesTransferred);
+			break;
+		case PostType::RECV:
+			pThis->handleRecv((ClientContext*)pSoContext,
+				pIoContext, dwBytesTransferred);
 
-				case PostType::RECV:
-				{
-					// 为了增加代码可读性，这里用专门的_DoRecv函数进行处理接收请求
-					pIoContext->m_nTotalBytes = dwBytesTransfered;
-					pIocpModel->_DoRecv(pSoContext, pIoContext);
-				}
-				break;
-
-				// 这里略过不写了，要不代码太多了，不容易理解，Send操作相对来讲简单一些
-				case PostType::SEND:
-				{
-					pIoContext->m_nSentBytes += dwBytesTransfered;
-					pIocpModel->_DoSend(pSoContext, pIoContext);
-				}
-				break;
-				default:
-					// 不应该执行到这里
-					pIocpModel->showMessage("_WorkThread中的m_OpType 参数异常");
-					break;
-				} //switch
-			}//if
-		}//if
+			break;
+		case PostType::SEND:
+			pThis->handleSend((ClientContext*)pSoContext,
+				pIoContext, dwBytesTransferred);
+			break;
+		default: // 不应该执行到这里
+			pThis->showMessage("WorkThread中的m_PostType异常");
+			break;
+		} //switch
 	}//while
-	pIocpModel->showMessage("工作者线程退出，ID:%d",
+	pThis->showMessage("工作者线程退出，ID:%d",
 		GetCurrentThreadId());
 	return 0;
 }
 
+IocpServer::IocpServer(short listenPort, int maxConnCount) :
+	m_bIsShutdown(false), m_listenPort(listenPort)
+	, m_nMaxConnClientCnt(maxConnCount)
+	, m_hExitEvent(INVALID_HANDLE_VALUE)
+	, m_hIOCP(INVALID_HANDLE_VALUE)
+	, m_nWorkerCnt(0)
+	, m_nConnClientCnt(0)
+	, m_pListenCtx(nullptr)
+	, m_lpfnGetAcceptExSockAddrs(nullptr)
+	, m_lpfnAcceptEx(nullptr)
+{
+	// 初始化线程互斥量
+	InitializeCriticalSection(&m_csLog);
+	InitializeCriticalSection(&m_csClientList);
+	if (!Network::init())
+	{
+		showMessage("初始化WinSock 2.2失败！");
+	}
+	// 建立系统退出的事件通知，初始状态为nonsignaled
+	m_hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if (WSA_INVALID_EVENT == m_hExitEvent)
+	{
+		showMessage("CreateEvent failed err=%d", WSAGetLastError());
+	}
+	showMessage("IocpServer() listenPort=%d", listenPort);
+}
+
+IocpServer::~IocpServer()
+{
+	// 确保资源彻底释放
+	this->Stop();
+	Network::deinit();
+	showMessage("~IocpServer()");
+	// 删除客户端列表的互斥量
+	DeleteCriticalSection(&m_csLog);
+	DeleteCriticalSection(&m_csClientList);
+}
+
+
 //函数功能：启动服务器
 bool IocpServer::Start()
 {
-	// 初始化线程互斥量
-	InitializeCriticalSection(&m_csClientList);
-	// 建立系统退出的事件通知
-	m_hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	// 初始化IOCP
-	if (!_InitializeIOCP())
-	{
-		this->showMessage("初始化IOCP失败！");
-		return false;
-	}
-	else
-	{
-		this->showMessage("初始化IOCP完毕！");
-	}
+	showMessage("IocpServer::Start()");
 	// 初始化Socket
-	if (!_InitializeListenSocket())
+	if (!initSocket(m_listenPort))
 	{
 		this->showMessage("监听Socket初始化失败！");
-		this->_DeInitialize();
+		this->deinitialize();
 		return false;
 	}
 	else
 	{
 		this->showMessage("监听Socket初始化完毕");
 	}
-	this->showMessage("系统准备就绪，等候连接...");
-	return true;
-}
-
-////////////////////////////////////////////////////////////////////
-//	开始发送系统退出消息，退出完成端口和线程资源
-bool IocpServer::Stop()
-{
-	if (m_pListenCtx != nullptr
-		&& m_pListenCtx->m_Socket != INVALID_SOCKET)
+	// 初始化IOCP
+	if (!initIOCP(m_pListenCtx))
 	{
-		// 激活关闭消息通知
-		SetEvent(m_hExitEvent);
-		for (int i = 0; i < m_nWorkerCnt; i++)
-		{
-			// 通知所有的完成端口操作退出
-			PostQueuedCompletionStatus(m_hIOCP,
-				0, (DWORD)EXIT_THREAD, NULL);
-		}
-		// 等待所有的客户端资源退出
-		WaitForMultipleObjects(m_nWorkerCnt, 
-			m_hWorkerThreads.data(),
-			TRUE, INFINITE);
-		// 清除客户端列表信息
-		this->_ClearContextList();
-		// 释放其他资源
-		this->_DeInitialize();
-		this->showMessage("停止监听");
+		this->showMessage("初始化IOCP失败！");
+		this->deinitialize();
+		return false;
 	}
 	else
 	{
-		m_pListenCtx = nullptr;
+		this->showMessage("初始化IOCP完毕！");
 	}
-	return true;
-}
-
-bool IocpServer::SendData(SocketContext* pSoContext, char* data, int size)
-{
-	this->showMessage("SendData(): s=%p d=%p", pSoContext, data);
-	if (!pSoContext || !data || size <= 0 || size > MAX_BUFFER_LEN)
+	if (!initIocpWorker())
 	{
-		this->showMessage("SendData()，参数有误");
+		this->deinitialize();
 		return false;
 	}
-	//投递WSASend请求，发送数据
-	IoContext* pNewIoContext = pSoContext->GetNewIoContext();
-	pNewIoContext->m_acceptSocket = pSoContext->m_Socket;
-	pNewIoContext->m_PostType = PostType::SEND;
-	pNewIoContext->m_nTotalBytes = size;
-	pNewIoContext->m_wsaBuf.len = size;
-	memcpy(pNewIoContext->m_wsaBuf.buf, data, size);
-	if (!this->_PostSend(pSoContext, pNewIoContext))
-	{// 无需RELEASE_POINTER，失败时，已经release了
-		// RELEASE_POINTER(pNewSocketContext);
-		return false;
-	}
-	return true;
-}
-
-bool IocpServer::SendData(SocketContext* pSoContext, IoContext* pIoContext)
-{
-	return this->_PostSend(pSoContext, pIoContext);
-}
-
-bool IocpServer::RecvData(SocketContext* pSoContext, IoContext* pIoContext)
-{
-	return this->_PostRecv(pSoContext, pIoContext);
-}
-
-////////////////////////////////
-// 初始化完成端口
-bool IocpServer::_InitializeIOCP()
-{
-	this->showMessage("初始化IOCP-InitializeIOCP()");
-	//If this parameter is zero, the system allows as many 
-	//concurrently running threads as there are processors in the system.
-	//如果此参数为零，则系统允许的并发运行线程数量与系统中的处理器数量相同。
-	m_hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
-		nullptr, 0, 0); //NumberOfConcurrentThreads
-	if (nullptr == m_hIOCP)
-	{
-		this->showMessage("建立完成端口失败！错误代码: %d!", WSAGetLastError());
-		return false;
-	}
-	// 根据本机中的处理器数量，建立对应的线程数
-	m_nWorkerCnt = WORKER_THREADS_PER_PROCESSOR * _GetNumOfProcessors();
-	// 根据计算出来的数量建立工作者线程
-	DWORD nThreadID = 0;
-	for (int i = 0; i < m_nWorkerCnt; i++)
-	{
-		HANDLE hWorker = ::CreateThread(0, 0, iocpWorkerThread,
-			(void*)this, 0, &nThreadID);
-		m_hWorkerThreads.emplace_back(hWorker);
-	}
-	this->showMessage("建立WorkerThread %d 个", m_nWorkerCnt);
+	this->showMessage("系统准备就绪，等候连接...");
 	return true;
 }
 
 /////////////////////////////////////////////////////////////////
 // 初始化Socket
-bool IocpServer::_InitializeListenSocket()
+bool IocpServer::initSocket(short listenPort)
 {
-	this->showMessage("初始化Socket-InitializeListenSocket()");
-	// 生成用于监听的Socket的信息
-	m_pListenCtx = new SocketContext;
-	// 需要使用重叠IO，必须得使用WSASocket来建立Socket，才可以支持重叠IO操作
-	m_pListenCtx->m_Socket = WSASocket(AF_INET, SOCK_STREAM,
-		IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
-	if (INVALID_SOCKET == m_pListenCtx->m_Socket)
-	{
-		this->showMessage("WSASocket() 失败，err=%d", WSAGetLastError());
-		this->_DeInitialize();
-		return false;
-	}
-	else
-	{
-		this->showMessage("创建 WSASocket() 完成");
-	}
+	this->showMessage("初始化Socket()");
+	// 生成用于监听的Socket，ListenContext内部创建
+	m_pListenCtx = new ListenContext(listenPort);
 
-	// 将Listen Socket绑定至完成端口中
-	if (NULL == CreateIoCompletionPort((HANDLE)m_pListenCtx->m_Socket,
-		m_hIOCP, (DWORD)m_pListenCtx, 0))
-	{
-		this->showMessage("绑定失败！err=%d",
-			WSAGetLastError());
-		this->_DeInitialize();
-		return false;
-	}
-	else
-	{
-		this->showMessage("绑定完成端口 完成");
-	}
-
-	// 填充地址信息
-	// 服务器地址信息，用于绑定Socket
-	sockaddr_in serverAddress;
-	ZeroMemory((char*)&serverAddress, sizeof(serverAddress));
-	serverAddress.sin_family = AF_INET;
-	// 这里可以绑定任何可用的IP地址，或者绑定一个指定的IP地址 
-	// ServerAddress.sin_addr.s_addr = inet_addr(m_strIP.c_str());
-	serverAddress.sin_addr.s_addr = htonl(INADDR_ANY);
-	serverAddress.sin_port = htons(m_listenPort);
-
-	// 绑定地址和端口
-	if (SOCKET_ERROR == bind(m_pListenCtx->m_Socket,
-		(sockaddr*)&serverAddress, sizeof(serverAddress)))
+	// 绑定Socket地址和端口
+	if (SOCKET_ERROR == Network::bind(m_pListenCtx->m_socket,
+		m_pListenCtx->m_addr.GetAddr()))
 	{
 		this->showMessage("bind()函数执行错误");
-		this->_DeInitialize();
 		return false;
 	}
 	else
@@ -315,10 +180,9 @@ bool IocpServer::_InitializeListenSocket()
 	}
 
 	// 开始进行监听
-	if (SOCKET_ERROR == listen(m_pListenCtx->m_Socket, MAX_LISTEN_SOCKET))
+	if (SOCKET_ERROR == Network::listen(m_pListenCtx->m_socket))
 	{
 		this->showMessage("listen()出错, err=%d", WSAGetLastError());
-		this->_DeInitialize();
 		return false;
 	}
 	else
@@ -326,43 +190,68 @@ bool IocpServer::_InitializeListenSocket()
 		this->showMessage("listen() 完成");
 	}
 
-	// 使用AcceptEx函数，因为这个是属于WinSock2规范之外的微软另外提供的扩展函数
+	// 使用AcceptEx函数，因为这个是属于WinSock2规范之外的
 	// 所以需要额外获取一下函数的指针，获取AcceptEx函数指针
 	DWORD dwBytes = 0;
 	GUID GuidAcceptEx = WSAID_ACCEPTEX;
-	GUID GuidGetAcceptExSockAddrs = WSAID_GETACCEPTEXSOCKADDRS;
-	if (SOCKET_ERROR == WSAIoctl(m_pListenCtx->m_Socket,
+	if (SOCKET_ERROR == WSAIoctl(m_pListenCtx->m_socket,
 		SIO_GET_EXTENSION_FUNCTION_POINTER, &GuidAcceptEx,
 		sizeof(GuidAcceptEx), &m_lpfnAcceptEx,
 		sizeof(m_lpfnAcceptEx), &dwBytes, NULL, NULL))
 	{
-		this->showMessage("WSAIoctl 未能获取AcceptEx函数指针。错误代码: %d",
-			WSAGetLastError());
-		this->_DeInitialize();
+		this->showMessage("获取AcceptEx失败。err=%d", WSAGetLastError());
 		return false;
 	}
 
 	// 获取GetAcceptExSockAddrs函数指针，也是同理
-	if (SOCKET_ERROR == WSAIoctl(m_pListenCtx->m_Socket,
-		SIO_GET_EXTENSION_FUNCTION_POINTER, &GuidGetAcceptExSockAddrs,
-		sizeof(GuidGetAcceptExSockAddrs), &m_lpfnGetAcceptExSockAddrs,
+	GUID GuidAddrs = WSAID_GETACCEPTEXSOCKADDRS;
+	if (SOCKET_ERROR == WSAIoctl(m_pListenCtx->m_socket,
+		SIO_GET_EXTENSION_FUNCTION_POINTER, &GuidAddrs,
+		sizeof(GuidAddrs), &m_lpfnGetAcceptExSockAddrs,
 		sizeof(m_lpfnGetAcceptExSockAddrs), &dwBytes, NULL, NULL))
 	{
-		this->showMessage("WSAIoctl 未能获取GuidGetAcceptExSockAddrs函数指针。"
-			"错误代码: %d", WSAGetLastError());
-		this->_DeInitialize();
+		this->showMessage("获取AcceptExAddr失败。err=%d", WSAGetLastError());
 		return false;
+	}
+	return true;
+}
+
+////////////////////////////////
+// 初始化完成端口
+bool IocpServer::initIOCP(ListenContext* pListenCtx)
+{
+	this->showMessage("初始化IOCP()");
+	//If this parameter is zero, the system allows as many 
+	//concurrently running threads as there are processors in the system.
+	//如果此参数为零，则系统允许的并发运行线程数量与系统中的处理器数量相同。
+	m_hIOCP = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
+		nullptr, 0, 0); //NumberOfConcurrentThreads
+	if (nullptr == m_hIOCP)
+	{
+		this->showMessage("建立IOCP失败！err=%d!", WSAGetLastError());
+		return false;
+	}
+
+	// 将Listen Socket绑定至完成端口中
+	if (NULL == CreateIoCompletionPort((HANDLE)pListenCtx->m_socket,
+		m_hIOCP, (DWORD)pListenCtx, 0)) //CompletionKey
+	{
+		this->showMessage("绑定IOCP失败！err=%d", WSAGetLastError());
+		return false;
+	}
+	else
+	{
+		this->showMessage("绑定IOCP完成");
 	}
 
 	// 为AcceptEx 准备参数，然后投递AcceptEx I/O请求
 	// 创建10个套接字，投递AcceptEx请求，即共有10个套接字进行accept操作；
 	for (size_t i = 0; i < MAX_POST_ACCEPT; i++)
 	{
-		// 新建一个IO_CONTEXT
-		IoContext* pIoContext = m_pListenCtx->GetNewIoContext();
-		if (pIoContext && !this->_PostAccept(pIoContext))
+		AcceptIoContext* pAcceptIoCtx = new AcceptIoContext();
+		pListenCtx->m_acceptIoCtxList.emplace_back(pAcceptIoCtx);
+		if (PostResult::SUCCESS != postAccept(pListenCtx, pAcceptIoCtx))
 		{
-			m_pListenCtx->RemoveContext(pIoContext);
 			return false;
 		}
 	}
@@ -370,15 +259,43 @@ bool IocpServer::_InitializeListenSocket()
 	return true;
 }
 
+bool IocpServer::initIocpWorker()
+{
+	this->showMessage("初始化WorkerThread(),Pid=%d, Tid=%d",
+		GetCurrentProcessId(), GetCurrentThreadId());
+	SYSTEM_INFO sysInfo;
+	GetSystemInfo(&sysInfo);
+	// 根据本机中的处理器数量，建立对应的线程数
+	int Count = sysInfo.dwNumberOfProcessors;
+	Count *= WORKER_THREADS_PER_PROCESSOR;
+	// 根据计算出来的数量建立工作者线程
+	for (int i = 0; i < Count; i++)
+	{
+		HANDLE hWorker = ::CreateThread(0, 0, iocpWorkerThread,
+			(void*)this, 0, NULL);
+		if (NULL == hWorker)
+		{
+			return false;
+		}
+		m_hWorkerThreads.emplace_back(hWorker);
+		++m_nWorkerCnt;
+	}
+	this->showMessage("建立WorkerThread %d 个", m_nWorkerCnt);
+	return true;
+}
+
 ////////////////////////////////////////////////////////////
 //	最后释放掉所有资源
-void IocpServer::_DeInitialize()
+void IocpServer::deinitialize()
 {
 	//关闭工作线程句柄
-	for_each(m_hWorkerThreads.begin(), m_hWorkerThreads.end(),
-		[](const HANDLE& h) { CloseHandle(h); });
-	// 删除客户端列表的互斥量
-	DeleteCriticalSection(&m_csClientList);
+	std::vector<HANDLE>::iterator it;
+	for (it = m_hWorkerThreads.begin();
+		it != m_hWorkerThreads.end(); it++)
+	{
+		RELEASE_HANDLE(*it);
+	}
+	m_hWorkerThreads.clear();
 	// 关闭系统退出事件句柄
 	RELEASE_HANDLE(m_hExitEvent);
 	// 关闭IOCP句柄
@@ -388,462 +305,223 @@ void IocpServer::_DeInitialize()
 	this->showMessage("释放资源完毕");
 }
 
+////////////////////////////////////////////////////////////////////
+//	开始发送系统退出消息，退出完成端口和线程资源
+bool IocpServer::Stop()
+{
+	showMessage("Stop()");
+	//同步等待所有工作线程退出
+	exitIocpWorker();
+	// 清除客户端列表信息
+	removeAllClientCtxs();
+	// 释放其他资源
+	this->deinitialize();
+	this->showMessage("停止监听");
+	return true;
+}
+
+bool IocpServer::exitIocpWorker()
+{
+	showMessage("exitIocpWorker()");
+	if (m_hExitEvent != INVALID_HANDLE_VALUE)
+	{
+		BOOL bRet = SetEvent(m_hExitEvent);
+	}
+	for (int i = 0; i < m_nWorkerCnt; ++i)
+	{
+		BOOL bRet = PostQueuedCompletionStatus(m_hIOCP,
+			0, EXIT_THREAD, NULL); //通知工作线程退出
+		if (!bRet)
+		{
+			showMessage("PostQueuedCompletionStatus err=%d",
+				WSAGetLastError());
+		}
+	}
+	//这里不明白为什么会返回0，不是应该返回m_nWorkerCnt-1吗？
+	DWORD dwRet = WaitForMultipleObjects(m_nWorkerCnt,
+		m_hWorkerThreads.data(), TRUE, INFINITE);
+	return true;
+}
+
+bool IocpServer::SendData(ClientContext* pClientCtx, PBYTE pData, UINT len)
+{
+	LockGuard lk(&pClientCtx->m_csLock);
+	showMessage("SendData() pClientCtx=%p len=%d", pClientCtx, len);
+	if (!pClientCtx || !pData || len <= 0)
+	{
+		this->showMessage("SendData()，参数有误");
+		return false;
+	}
+	if (0 == pClientCtx->m_outBuf.getBufferLen())
+	{
+		//第一次投递，++m_nPendingIoCnt
+		pClientCtx->m_outBuf.write(pData, len);
+		pClientCtx->m_sendIoCtx->m_wsaBuf.buf = (PCHAR)pClientCtx->m_outBuf.getBuffer();
+		pClientCtx->m_sendIoCtx->m_wsaBuf.len = pClientCtx->m_outBuf.getBufferLen();
+
+		PostResult result = postSend(pClientCtx);
+		if (PostResult::FAILED == result)
+		{
+			handleClose(pClientCtx);
+			return false;
+		}
+	}
+	else
+	{
+		Buffer sendBuf;
+		sendBuf.write(pData, len);
+		pClientCtx->m_outBufQueue.emplace(sendBuf);
+	}
+	return true;
+}
+
+void IocpServer::enterIoLoop(SocketContext* pSocketCtx)
+{
+	InterlockedIncrement(&pSocketCtx->m_nPendingIoCnt);
+}
+
+int IocpServer::exitIoLoop(SocketContext* pSocketCtx)
+{
+	return InterlockedDecrement(&pSocketCtx->m_nPendingIoCnt);
+}
+
+
+
 //================================================================================
 //				 投递完成端口请求
 //================================================================================
 //////////////////////////////////////////////////////////////////
 // 投递Accept请求
-bool IocpServer::_PostAccept(IoContext* pIoContext)
+PostResult IocpServer::postAccept(ListenContext* pListenCtx,
+	AcceptIoContext* pAcceptIoCtx)
 {
-	if (m_pListenCtx == NULL || m_pListenCtx->m_Socket == INVALID_SOCKET)
+	if (INVALID_SOCKET == pListenCtx->m_socket)
 	{
-		throw "_PostAccept,m_pListenContext or m_Socket INVALID!";
+		return PostResult::INVALID;
 	}
-	// 准备参数
-	pIoContext->ResetBuffer();
-	pIoContext->m_PostType = PostType::ACCEPT;
-	// SOCKET hClient = accept(hSocket, NULL, NULL); //传统accept
-	// 为以后新连入的客户端先准备好Socket( 这个是与传统accept最大的区别 ) 
-	pIoContext->m_acceptSocket = WSASocket(AF_INET, SOCK_STREAM,
-		IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
-	if (INVALID_SOCKET == pIoContext->m_acceptSocket)
-	{// 投递多少次ACCEPT，就创建多少个socket；
+	//enterIoLoop(pClientCtx);
+	pAcceptIoCtx->ResetBuffer();
+	//创建用于接受连接的socket
+	pAcceptIoCtx->m_acceptSocket = Network::socket();
+	showMessage("postAccept() pAcceptIoCtx=%p s=%d",
+		pAcceptIoCtx, pAcceptIoCtx->m_acceptSocket);
+	if (SOCKET_ERROR == pAcceptIoCtx->m_acceptSocket)
+	{
 		showMessage("创建用于Accept的Socket失败！err=%d", WSAGetLastError());
-		return false;
+		return PostResult::INVALID;
 	}
 	//https://docs.microsoft.com/zh-cn/windows/win32/api/mswsock/nf-mswsock-acceptex
 	// 投递AcceptEx // 将接收缓冲置为0,令AcceptEx直接返回,防止拒绝服务攻击	
+	//* 如果客户端连上却没发送数据，则acceptEx不会触发完成包，则浪费服务器资源
+	//* 解决方法：为了防止恶意连接，accpetEx不接收用户数据，
+	//* 	只接收地址（没办法，接口调用必须提供缓冲区）
 	DWORD dwBytes = 0, dwAddrLen = (sizeof(SOCKADDR_IN) + 16);
-	WSABUF* pWSAbuf = &pIoContext->m_wsaBuf; //必须+16,参见MSDN
-	if (!m_lpfnAcceptEx(m_pListenCtx->m_Socket,
-		pIoContext->m_acceptSocket, pWSAbuf->buf,
+	WSABUF* pWSAbuf = &pAcceptIoCtx->m_wsaBuf; //必须+16,参见MSDN
+	if (!m_lpfnAcceptEx(m_pListenCtx->m_socket,
+		pAcceptIoCtx->m_acceptSocket, pWSAbuf->buf,
 		0, //pWSAbuf->len - (dwAddrLen * 2),
 		dwAddrLen, dwAddrLen, &dwBytes,
-		&pIoContext->m_Overlapped))
+		&pAcceptIoCtx->m_Overlapped))
 	{
 		int nErr = WSAGetLastError();
 		if (WSA_IO_PENDING != nErr)
 		{// Overlapped I/O operation is in progress.
 			showMessage("投递 AcceptEx 失败，err=%d", nErr);
-			return false;
+			return PostResult::FAILED;
 		}
-	}
-	InterlockedIncrement(&acceptPostCount);
-	return true;
-}
-
-////////////////////////////////////////////////////////////
-// 在有客户端连入的时候，进行处理
-// 流程有点复杂，你要是看不懂的话，就看配套的文档吧....
-// 如果能理解这里的话，完成端口的机制你就消化了一大半了
-
-// 总之你要知道，传入的是ListenSocket的Context，我们需要复制一份出来给新连入的Socket用
-// 原来的Context还是要在上面继续投递下一个Accept请求
-/********************************************************************
-*函数功能：函数进行客户端接入处理；
-*参数说明：
-SocketContext* pSoContext:	本次accept操作对应的套接字，该套接字所对应的数据结构；
-IoContext* pIoContext:			本次accept操作对应的数据结构；
-DWORD		dwIOSize:			本次操作数据实际传输的字节数
-********************************************************************/
-#include <mstcpip.h> //tcp_keepalive
-bool IocpServer::_DoAccept(SocketContext* pSoContext, IoContext* pIoContext)
-{//这里的pSoContext是listenSocketContext
-	InterlockedIncrement(&m_nConnClientCnt);
-	InterlockedDecrement(&acceptPostCount);
-#if 1 //无法得到对方的IP地址呢！
-	SOCKADDR_IN* clientAddr = NULL, * localAddr = NULL;
-	DWORD dwAddrLen = (sizeof(SOCKADDR_IN) + 16);
-	int remoteLen = 0, localLen = 0; //必须+16,参见MSDN
-	this->m_lpfnGetAcceptExSockAddrs(pIoContext->m_wsaBuf.buf,
-		0, //pIoContext->m_wsaBuf.len - (dwAddrLen * 2),
-		dwAddrLen, dwAddrLen, (LPSOCKADDR*)&localAddr,
-		&localLen, (LPSOCKADDR*)&clientAddr, &remoteLen);
-
-	// 2. 为新连接建立一个SocketContext 
-	SocketContext* pNewSocketContext = new SocketContext;
-	//加入到ContextList中去(需要统一管理，方便释放资源)
-	this->_AddToContextList(pNewSocketContext);
-	pNewSocketContext->m_Socket = pIoContext->m_acceptSocket;
-	memcpy(&(pNewSocketContext->m_ClientAddr), clientAddr, remoteLen);
-
-	// 3. 将listenSocketContext的IOContext 重置后继续投递AcceptEx
-	if (!_PostAccept(pIoContext))
-	{
-		pSoContext->RemoveContext(pIoContext);
-	}
-
-	// 4. 将新socket和完成端口绑定
-	if (!this->_AssociateWithIOCP(pNewSocketContext))
-	{//无需RELEASE_POINTER，失败时，已经release了
-		// RELEASE_POINTER(pNewSocketContext);
-		return false;
-	}
-
-	// 并设置tcp_keepalive
-	tcp_keepalive alive_in = { 0 }, alive_out = { 0 };
-	// 60s  多长时间（ ms ）没有数据就开始 send 心跳包
-	alive_in.keepalivetime = 1000 * 60; //1分钟
-	// 10s  每隔多长时间（ ms ） send 一个心跳包
-	alive_in.keepaliveinterval = 1000 * 10; //10s
-	alive_in.onoff = TRUE;
-	DWORD lpcbBytesReturned = 0;
-	if (SOCKET_ERROR == WSAIoctl(pNewSocketContext->m_Socket,
-		SIO_KEEPALIVE_VALS, &alive_in, sizeof(alive_in), &alive_out,
-		sizeof(alive_out), &lpcbBytesReturned, NULL, NULL))
-	{
-		showMessage("WSAIoctl() failed: %d\n", WSAGetLastError());
-	}
-	OnConnectionAccepted(pNewSocketContext);
-
-	// 5. 建立recv操作所需的ioContext，在新连接的socket上投递recv请求
-	IoContext* pNewIoContext = pNewSocketContext->GetNewIoContext();
-	if (pNewIoContext != NULL)
-	{//不成功，会怎么样？
-		pNewIoContext->m_PostType = PostType::RECV;
-		pNewIoContext->m_acceptSocket = pNewSocketContext->m_Socket;
-		// 投递recv请求
-		return _PostRecv(pNewSocketContext, pNewIoContext);
+		//投递成功，计数器增加
+		enterIoLoop(pListenCtx);
+		return PostResult::SUCCESS;
 	}
 	else
 	{
-		_DoClose(pNewSocketContext);
-		return false;
+		showMessage("投递 AcceptEx 失败，fnAcceptEx FALSE");
+		// Accept completed synchronously. We need to marshal 收集
+		// the data received over to the worker thread ourselves...
+		return PostResult::FAILED;
 	}
-#else //貌似无需区分 是否WithData
-	if (pIoContext->m_nTotalBytes > 0)
+}
+
+//投递WSARecv请求；
+PostResult IocpServer::postRecv(ClientContext* pClientCtx)
+{
+	if (INVALID_SOCKET == pClientCtx->m_socket)
 	{
-		//客户接入时，第一次接收dwIOSize字节数据
-		_DoFirstRecvWithData(pIoContext);
+		return PostResult::INVALID;
 	}
 	else
 	{
-		//客户端接入时，没有发送数据，则投递WSARecv请求，接收数据
-		_DoFirstRecvWithoutData(pIoContext);
-	}
-	// 5. 使用完毕之后，把Listen Socket的那个IoContext重置，然后准备投递新的AcceptEx
-	return this->_PostAccept(pIoContext);
-#endif
-}
-
-/*************************************************************
-*函数功能：AcceptEx接收客户连接成功，接收客户第一次发送的数据，故投递WSASend请求
-*函数参数：IoContext* pIoContext:	用于监听套接字上的操作
-**************************************************************/
-bool IocpServer::_DoFirstRecvWithData(IoContext* pIoContext)
-{
-	SOCKADDR_IN* clientAddr = NULL, * localAddr = NULL;
-	int remoteLen, localLen, addrLen = sizeof(SOCKADDR_IN);
-	///////////////////////////////////////////////////////////////////////////
-	// 1. 首先取得连入客户端的地址信息
-	// 这个 m_lpfnGetAcceptExSockAddrs 不得了啊~~~~~~
-	// 不但可以取得客户端和本地端的地址信息，还能顺便取出第一组数据，老强大了...
-	this->m_lpfnGetAcceptExSockAddrs(pIoContext->m_wsaBuf.buf,
-		pIoContext->m_wsaBuf.len - ((addrLen + 16) * 2),
-		addrLen + 16, addrLen + 16, (LPSOCKADDR*)&localAddr,
-		&localLen, (LPSOCKADDR*)&clientAddr, &remoteLen);
-	// 显示客户端信息
-	this->showMessage("客户端 %s:%d 连入了!", inet_ntoa(clientAddr->sin_addr),
-		ntohs(clientAddr->sin_port));
-	this->showMessage("收到 %s:%d 信息：%s", inet_ntoa(clientAddr->sin_addr),
-		ntohs(clientAddr->sin_port), pIoContext->m_wsaBuf.buf);
-
-	////////////////////////////////////////////////////////////////////////////////
-	// 2. 这里需要注意，这里传入的这个是ListenSocket上的Context，
-	// 这个Context我们还需要用于监听下一个连接，所以我还得要将ListenSocket
-	//	上的Context复制出来一份，为新连入的Socket新建一个SocketContext
-	//	为新接入的套接创建SocketContext，并将该套接字绑定到完成端口
-	SocketContext* pNewSocketContext = new SocketContext;
-	this->showMessage("pNewSocketContext=%p", pNewSocketContext);
-	//加入到ContextList中去(需要统一管理，方便释放资源)
-	this->_AddToContextList(pNewSocketContext);
-	pNewSocketContext->m_Socket = pIoContext->m_acceptSocket;
-	memcpy(&(pNewSocketContext->m_ClientAddr), clientAddr, remoteLen);
-	// 3. 将该套接字绑定到完成端口
-	// 参数设置完毕，将这个Socket和完成端口绑定(这也是一个关键步骤)
-	if (!this->_AssociateWithIOCP(pNewSocketContext))
-	{//无需RELEASE_POINTER，失败时，已经release了
-		// RELEASE_POINTER(pNewSocketContext);
-		return false;
-	}
-
-	// 4. 如果投递成功，那么就把这个有效的客户端信息，
-	this->OnConnectionAccepted(pNewSocketContext);
-	// 一定要新建一个IoContext，因为原有的是ListenSocket的
-	IoContext* pNewIoContext = pNewSocketContext->GetNewIoContext();
-	pNewIoContext->m_PostType = PostType::RECV;
-	pNewIoContext->m_acceptSocket = pNewSocketContext->m_Socket;
-	pNewIoContext->m_nTotalBytes = pIoContext->m_nTotalBytes;
-	pNewIoContext->m_wsaBuf.len = pIoContext->m_nTotalBytes;
-	memcpy(pNewIoContext->m_wsaBuf.buf, pIoContext->m_wsaBuf.buf,
-		pIoContext->m_nTotalBytes);	//复制数据到WSASend函数的参数缓冲区
-	this->_DoRecv(pNewSocketContext, pNewIoContext);
-
-	//////////////////////////////////////////////////////////////////////////////////
-	// 5. 使用完毕之后，把Listen Socket的那个IoContext重置，然后准备投递新的AcceptEx
-	// return this->_PostAccept(pIoContext );
-	return true;
-}
-
-/*************************************************************
-*函数功能：AcceptEx接收客户连接成功，此时并未接收到数据，故投递WSARecv请求
-*函数参数：IoContext* pIoContext:	用于监听套接字上的操作
-**************************************************************/
-bool IocpServer::_DoFirstRecvWithoutData(IoContext* pIoContext)
-{
-	//为新接入的套接字创建SocketContext结构，并绑定到完成端口
-	// 1. 首先取得连入客户端的地址信息
-	SOCKADDR_IN clientAddr = { 0 };
-	int addrLen = sizeof(clientAddr);
-	getpeername(pIoContext->m_acceptSocket, (SOCKADDR*)&clientAddr, &addrLen);
-	this->showMessage("客户端 %s:%d 连入了", inet_ntoa(clientAddr.sin_addr),
-		ntohs(clientAddr.sin_port));
-	// 2. 这里需要注意，这里传入的这个是ListenSocket上的Context，
-	SocketContext* pNewSocketContext = new SocketContext;
-	this->showMessage("pNewSocketContext=%p", pNewSocketContext);
-	//加入到ContextList中去(需要统一管理，方便释放资源)
-	this->_AddToContextList(pNewSocketContext);
-	pNewSocketContext->m_Socket = pIoContext->m_acceptSocket;
-	memcpy(&(pNewSocketContext->m_ClientAddr),
-		&clientAddr, sizeof(clientAddr));
-	// 3. 将该套接字绑定到完成端口
-	if (!this->_AssociateWithIOCP(pNewSocketContext))
-	{//无需RELEASE_POINTER，失败时，已经release了
-		//RELEASE_POINTER(pNewSocketContext);
-		return false;
-	}
-	// 4.投递WSARecv请求，接收数据
-	IoContext* pNewIoContext = pNewSocketContext->GetNewIoContext();
-	//此时是AcceptEx未接收到客户端第一次发送的数据，
-	//所以这里调用PostRecv，接收来自客户端的数据
-	if (!this->_PostRecv(pNewSocketContext, pNewIoContext))
-	{//无需RELEASE_POINTER，失败时，已经release了
-		//RELEASE_POINTER(pNewSocketContext);
-		return false;
-	}
-	// 5.整个流程就全部成功，继续投递Accept
-	// return this->_PostAccept(pIoContext );
-	this->OnConnectionAccepted(pNewSocketContext);
-	return true;
-}
-
-/*************************************************************
-*函数功能：投递WSARecv请求；
-*函数参数：
-IoContext* pIoContext:	用于进行IO的套接字上的结构，主要为WSARecv参数和WSASend参数；
-**************************************************************/
-bool IocpServer::_PostRecv(SocketContext* pSoContext, IoContext* pIoContext)
-{
-	pIoContext->ResetBuffer();
-	pIoContext->m_PostType = PostType::RECV;
-	pIoContext->m_nTotalBytes = 0;
-	pIoContext->m_nSentBytes = 0;
-	// 初始化变量
-	DWORD dwFlags = 0, dwBytes = 0;
-	// 初始化完成后，投递WSARecv请求
-	const int nBytesRecv = WSARecv(pIoContext->m_acceptSocket,
-		&pIoContext->m_wsaBuf, 1, &dwBytes, &dwFlags,
-		&pIoContext->m_Overlapped, NULL);
-	// 如果返回值错误，并且错误的代码并非是Pending的话，那就说明这个重叠请求失败了
-	if (SOCKET_ERROR == nBytesRecv)
-	{
-		int nErr = WSAGetLastError();
-		if (WSA_IO_PENDING != nErr)
-		{// Overlapped I/O operation is in progress.
-			this->showMessage("投递WSARecv失败！err=%d", nErr);
-			this->_DoClose(pSoContext);
-			return false;
-		}
-	}
-	return true;
-}
-
-/////////////////////////////////////////////////////////////////
-// 在有接收的数据到达的时候，进行处理
-bool IocpServer::_DoRecv(SocketContext* pSoContext, IoContext* pIoContext)
-{
-	// 先把上一次的数据显示出现，然后就重置状态，发出下一个Recv请求
-	SOCKADDR_IN* clientAddr = &pSoContext->m_ClientAddr;
-	//this->_ShowMessage("收到 %s:%d 信息：%s", inet_ntoa(clientAddr->sin_addr),
-	//	ntohs(clientAddr->sin_port), pIoContext->m_wsaBuf.buf);
-	// 然后开始投递下一个WSARecv请求 //发送数据
-	//这里不应该直接PostWrite，发什么应该由应用决定
-	this->OnRecvCompleted(pSoContext, pIoContext);
-	//return _PostRecv(pSoContext, pIoContext);
-	return true; //交给应用层，不继续接收了
-}
-
-/*************************************************************
-*函数功能：投递WSASend请求
-*函数参数：
-IoContext* pIoContext:	用于进行IO的套接字上的结构，主要为WSARecv参数和WSASend参数
-*函数说明：调用PostWrite之前需要设置pIoContext中m_wsaBuf, m_nTotalBytes, m_nSendBytes；
-**************************************************************/
-bool IocpServer::_PostSend(SocketContext* pSoContext, IoContext* pIoContext)
-{
-	// 初始化变量
-	////pIoContext->ResetBuffer(); //外部设置m_wsaBuf
-	pIoContext->m_PostType = PostType::SEND;
-	pIoContext->m_nTotalBytes = 0;
-	pIoContext->m_nSentBytes = 0;
-	//投递WSASend请求 -- 需要修改
-	const DWORD dwFlags = 0;
-	DWORD dwSendNumBytes = 0;
-	const int nRet = WSASend(pIoContext->m_acceptSocket,
-		&pIoContext->m_wsaBuf, 1, &dwSendNumBytes, dwFlags,
-		&pIoContext->m_Overlapped, NULL);
-	// 如果返回值错误，并且错误的代码并非是Pending的话，那就说明这个重叠请求失败了
-	if (SOCKET_ERROR == nRet)
-	{ //WSAENOTCONN=10057L
-		int nErr = WSAGetLastError();
-		if (WSA_IO_PENDING != nErr)
-		{// Overlapped I/O operation is in progress.
-			this->showMessage("投递WSASend失败！err=%d", nErr);
-			this->_DoClose(pSoContext);
-			return false;
-		}
-	}
-	return true;
-}
-
-bool IocpServer::_DoSend(SocketContext* pSoContext, IoContext* pIoContext)
-{
-	if (pIoContext->m_nSentBytes < pIoContext->m_nTotalBytes)
-	{
-		//数据未能发送完，继续发送数据
-		pIoContext->m_wsaBuf.buf = pIoContext->m_szBuffer
-			+ pIoContext->m_nSentBytes;
-		pIoContext->m_wsaBuf.len = pIoContext->m_nTotalBytes
-			- pIoContext->m_nSentBytes;
-		return this->_PostSend(pSoContext, pIoContext);
-	}
-	else
-	{
-		this->OnSendCompleted(pSoContext, pIoContext);
-		//return this->_PostRecv(pSoContext, pIoContext);
-		return true; //通知应用层，发送完毕，不主动接收
-	}
-}
-
-bool IocpServer::_DoClose(SocketContext* pSoContext)
-{
-	//this->_ShowMessage("_DoClose() pSoContext=%p", pSoContext);
-	if (pSoContext != m_pListenCtx)
-	{// m_pListenContext不在vector中，找不到
-		InterlockedDecrement(&m_nConnClientCnt);
-		this->_RemoveContext(pSoContext);
-		return true;
-	}
-	InterlockedIncrement(&errorCount);
-	return false;
-}
-
-/////////////////////////////////////////////////////
-// 将句柄(Socket)绑定到完成端口中
-bool IocpServer::_AssociateWithIOCP(SocketContext* pSoContext)
-{
-	// 将用于和客户端通信的SOCKET绑定到完成端口中
-	HANDLE hTemp = CreateIoCompletionPort((HANDLE)pSoContext->m_Socket,
-		m_hIOCP, (DWORD)pSoContext, 0);
-	if (nullptr == hTemp) // ERROR_INVALID_PARAMETER=87L
-	{
-		this->showMessage("绑定IOCP失败。err=%d", GetLastError());
-		this->_DoClose(pSoContext);
-		return false;
-	}
-	return true;
-}
-
-//=====================================================================
-//				 ContextList 相关操作
-//=====================================================================
-//////////////////////////////////////////////////////////////
-// 将客户端的相关信息存储到数组中
-void IocpServer::_AddToContextList(SocketContext* pSoContext)
-{
-	EnterCriticalSection(&m_csClientList);
-	m_arrayClientContext.push_back(pSoContext);
-	LeaveCriticalSection(&m_csClientList);
-}
-
-////////////////////////////////////////////////////////////////
-//	移除某个特定的Context
-void IocpServer::_RemoveContext(SocketContext* pSoContext)
-{
-	EnterCriticalSection(&m_csClientList);
-	vector<SocketContext*>::iterator it;
-	it = m_arrayClientContext.begin();
-	while (it != m_arrayClientContext.end())
-	{
-		SocketContext* pContext = *it;
-		if (pSoContext == pContext)
+		//enterIoLoop(pClientCtx);
+		LockGuard lk(&pClientCtx->m_csLock);
+		RecvIoContext* pRecvIoCtx = pClientCtx->m_recvIoCtx;
+		showMessage("postRecv() pClientCtx=%p, s=%d, pRecvIoCtx=%p",
+			pClientCtx, pClientCtx->m_socket, pRecvIoCtx);
+		pRecvIoCtx->ResetBuffer();
+		//设置这个标志，则没收完的数据下一次接收
+		DWORD dwBytes = 0, dwFlags = 0; // MSG_PARTIAL;
+		int nBytesRecv = WSARecv(pClientCtx->m_socket, &pRecvIoCtx->m_wsaBuf,
+			1, &dwBytes, &dwFlags, &pRecvIoCtx->m_Overlapped, NULL);
+		if (SOCKET_ERROR == nBytesRecv)
 		{
-			delete pSoContext;
-			pSoContext = nullptr;
-			it = m_arrayClientContext.erase(it);
-			break;
+			int nErr = WSAGetLastError();
+			if (WSA_IO_PENDING != nErr)
+			{// Overlapped I/O operation is in progress.
+				this->showMessage("投递WSARecv失败！err=%d", nErr);
+				return PostResult::FAILED;
+			}
 		}
-		it++;
+		//投递成功，计数器增加
+		enterIoLoop(pClientCtx);
+		return PostResult::SUCCESS;
 	}
-	LeaveCriticalSection(&m_csClientList);
 }
 
-////////////////////////////////////////////////////////////////
-// 清空客户端信息
-void IocpServer::_ClearContextList()
+//投递WSASend请求
+PostResult IocpServer::postSend(ClientContext* pClientCtx)
 {
-	EnterCriticalSection(&m_csClientList);
-	for (size_t i = 0; i < m_arrayClientContext.size(); i++)
+	if (INVALID_SOCKET == pClientCtx->m_socket)
 	{
-		delete m_arrayClientContext.at(i);
-	}
-	m_arrayClientContext.clear();
-	LeaveCriticalSection(&m_csClientList);
-}
-
-//================================================================================
-//				 其他辅助函数定义
-//================================================================================
-///////////////////////////////////////////////////////////////////
-// 获得本机中处理器的数量
-int IocpServer::_GetNumOfProcessors() noexcept
-{
-	SYSTEM_INFO si;
-	GetSystemInfo(&si);
-	return si.dwNumberOfProcessors;
-}
-
-/////////////////////////////////////////////////////////////////////
-// 判断客户端Socket是否已经断开，否则在一个无效的Socket上投递WSARecv操作会出现异常
-// 使用的方法是尝试向这个socket发送数据，判断这个socket调用的返回值
-// 因为如果客户端网络异常断开(例如客户端崩溃或者拔掉网线等)的时候，
-// 服务器端是无法收到客户端断开的通知的
-bool IocpServer::_IsSocketAlive(SOCKET s) noexcept
-{
-	const int nByteSent = send(s, "", 0, 0);
-	if (SOCKET_ERROR == nByteSent)
-	{
-		return false;
+		return PostResult::INVALID;
 	}
 	else
 	{
-		return true;
+		//enterIoLoop(pClientCtx);
+		LockGuard lk(&pClientCtx->m_csLock);
+		SendIoContext* pSendIoCtx = pClientCtx->m_sendIoCtx;
+		showMessage("postSend() pClientCtx=%p, s=%d, pSendIoCtx=%p",
+			pClientCtx, pClientCtx->m_socket, pSendIoCtx);
+
+		//设置这个标志，则没发完的数据下一次发送
+		DWORD dwBytes = 0, dwFlags = 0; // MSG_PARTIAL;
+		int nRet = WSASend(pClientCtx->m_socket, &pSendIoCtx->m_wsaBuf,
+			1, &dwBytes, dwFlags, &pSendIoCtx->m_Overlapped, NULL);
+		if (SOCKET_ERROR == nRet)
+		{ //WSAENOTCONN=10057L
+			int nErr = WSAGetLastError();
+			if (WSA_IO_PENDING != nErr)
+			{// Overlapped I/O operation is in progress.
+				showMessage("投递WSASend失败！err=%d", nErr);
+				return PostResult::FAILED;
+			}
+		}
+		//投递成功，计数器增加
+		enterIoLoop(pClientCtx);
+		return PostResult::SUCCESS;
 	}
 }
 
-///////////////////////////////////////////////////////////////////
-//函数功能：显示并处理完成端口上的错误
-bool IocpServer::HandleError(SocketContext* pSoContext, const DWORD& dwErr)
+//处理完成端口上的错误
+bool IocpServer::handleError(ClientContext* pClientCtx, const DWORD& dwErr)
 {
 	// 如果是超时了，就再继续等吧 0x102=258L
 	if (WAIT_TIMEOUT == dwErr)
 	{
 		// 确认客户端是否还活着...
-		if (!_IsSocketAlive(pSoContext->m_Socket))
+		if (!isSocketAlive(pClientCtx->m_socket))
 		{
 			this->showMessage("检测到客户端异常退出！");
-			this->OnConnectionClosed(pSoContext);
-			this->_DoClose(pSoContext);
+			this->OnConnectionClosed(pClientCtx);
+			this->handleClose(pClientCtx);
 			return true;
 		}
 		else
@@ -856,8 +534,8 @@ bool IocpServer::HandleError(SocketContext* pSoContext, const DWORD& dwErr)
 	else if (ERROR_NETNAME_DELETED == dwErr)
 	{// 出这个错，可能是监听SOCKET挂掉了
 		//this->_ShowMessage("检测到客户端异常退出！");
-		this->OnConnectionError(pSoContext, dwErr);
-		if (!this->_DoClose(pSoContext))
+		this->OnConnectionError(pClientCtx, dwErr);
+		if (!this->handleClose(pClientCtx))
 		{
 			this->showMessage("检测到异常！");
 		}
@@ -866,10 +544,334 @@ bool IocpServer::HandleError(SocketContext* pSoContext, const DWORD& dwErr)
 	else
 	{//ERROR_OPERATION_ABORTED=995L
 		this->showMessage("完成端口操作出错，线程退出。err=%d", dwErr);
-		this->OnConnectionError(pSoContext, dwErr);
-		this->_DoClose(pSoContext);
+		this->OnConnectionError(pClientCtx, dwErr);
+		this->handleClose(pClientCtx);
 		return false;
 	}
+}
+
+////////////////////////////////////////////////////////////
+bool IocpServer::handleAccept(ListenContext* pListenCtx,
+	IoContext* pIoCtx, DWORD dwBytesTransferred)
+{//dwBytesTransferred没有用到
+	exitIoLoop(pListenCtx);
+	AcceptIoContext* pAcceptIoCtx = (AcceptIoContext*)pIoCtx;
+	showMessage("handleAccept() pAcceptIoCtx=%p, s=%d",
+		pAcceptIoCtx, pAcceptIoCtx->m_acceptSocket);
+	//达到最大连接数则关闭新的socket
+	if (m_nConnClientCnt + 1 >= m_nMaxConnClientCnt)
+	{//WSAECONNABORTED=(10053)//Software caused connection abort.
+		//WSAECONNRESET=(10054)//Connection reset by peer.
+		closesocket(pAcceptIoCtx->m_acceptSocket);
+		pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
+		postAccept(pListenCtx, pAcceptIoCtx);
+		return true;
+	}
+	InterlockedIncrement(&m_nConnClientCnt);
+	SOCKADDR_IN* clientAddr = NULL, * localAddr = NULL;
+	DWORD dwAddrLen = (sizeof(SOCKADDR_IN) + 16);
+	int remoteLen = 0, localLen = 0; //必须+16,参见MSDN
+	this->m_lpfnGetAcceptExSockAddrs(pAcceptIoCtx->m_wsaBuf.buf,
+		0, //pIoContext->m_wsaBuf.len - (dwAddrLen * 2),
+		dwAddrLen, dwAddrLen, (LPSOCKADDR*)&localAddr,
+		&localLen, (LPSOCKADDR*)&clientAddr, &remoteLen);
+	Network::updateAcceptContext(m_pListenCtx->m_socket,
+		pAcceptIoCtx->m_acceptSocket); //这是干嘛？
+	//创建新的ClientContext，原来的IoContext要用来接收新的连接
+	ClientContext* pClientCtx = allocateClientCtx(pAcceptIoCtx->m_acceptSocket);
+	addClientCtx(pClientCtx); //将客户端加入连接列表
+	//SOCKADDR_IN sockaddr = Network::getpeername(pClientCtx->m_socket);
+	pClientCtx->m_addr = *(SOCKADDR_IN*)clientAddr;
+	//先投递，避免下面绑定失败，还没有投递，会导致投递数减少
+	if (PostResult::SUCCESS != postAccept(pListenCtx, pAcceptIoCtx))
+	{//投递一个新的accpet请求
+		handleClose(pClientCtx);
+		return false;
+	}
+	if (NULL == CreateIoCompletionPort((HANDLE)pClientCtx->m_socket,
+		m_hIOCP, (ULONG_PTR)pClientCtx, 0)) //CompletionKey
+	{
+		handleClose(pClientCtx);
+		return false;
+	}
+	//开启心跳机制
+	//setKeepAlive(pClientCtx, &pAcceptIoCtx->m_overlapped);
+	OnConnectionAccepted(pClientCtx);
+	//投递recv请求,这里invalid socket是否要关闭客户端？
+	PostResult result = postRecv(pClientCtx);
+	if (PostResult::FAILED == result
+		|| PostResult::INVALID == result)
+	{
+		handleClose(pClientCtx);
+	}
+	return true;
+}
+
+// 在有接收的数据到达的时候，进行处理
+bool IocpServer::handleRecv(ClientContext* pClientCtx,
+	IoContext* pIoCtx, DWORD dwBytesTransferred)
+{
+	exitIoLoop(pClientCtx);
+	showMessage("handleRecv() pClientCtx=%p, s=%d, pRecvIoCtx=%p",
+		pClientCtx, pClientCtx->m_socket, pIoCtx);
+	RecvIoContext* pRecvIoCtx = (RecvIoContext*)pIoCtx;
+	pClientCtx->appendToBuffer(pRecvIoCtx->m_recvBuf, dwBytesTransferred);
+	OnRecvCompleted(pClientCtx);
+
+	// 然后开始投递下一个WSARecv请求 
+	PostResult result = postRecv(pClientCtx);
+	if (PostResult::FAILED == result
+		|| PostResult::INVALID == result)
+	{
+		handleClose(pClientCtx);
+	}
+	return true;
+}
+
+// 在发送数据完毕的时候，进行处理
+bool IocpServer::handleSend(ClientContext* pClientCtx,
+	IoContext* pIoCtx, DWORD dwBytesTransferred)
+{
+	exitIoLoop(pClientCtx);
+	LockGuard lk(&pClientCtx->m_csLock);
+	SendIoContext* pSendIoCtx = (SendIoContext*)pIoCtx;
+	showMessage("handleSend() pClientCtx=%p, s=%d, pSendIoCtx=%p",
+		pClientCtx, pClientCtx->m_socket, pSendIoCtx);
+	pClientCtx->m_outBuf.remove(dwBytesTransferred);
+	if (0 == pClientCtx->m_outBuf.getBufferLen())
+	{
+		pClientCtx->m_outBuf.clear();
+
+		if (!pClientCtx->m_outBufQueue.empty())
+		{
+			pClientCtx->m_outBuf.copy(pClientCtx->m_outBufQueue.front());
+			pClientCtx->m_outBufQueue.pop();
+		}
+		else
+		{
+			//发送完毕，不能关socket
+			//handleClose(pClientCtx);
+			//releaseClientCtx(pClientCtx);
+			OnSendCompleted(pClientCtx);
+		}
+	}
+	if (0 != pClientCtx->m_outBuf.getBufferLen())
+	{
+		pSendIoCtx->m_wsaBuf.buf = (PCHAR)pClientCtx->m_outBuf.getBuffer();
+		pSendIoCtx->m_wsaBuf.len = pClientCtx->m_outBuf.getBufferLen();
+
+		PostResult result = postSend(pClientCtx);
+		if (PostResult::FAILED == result)
+		{
+			handleClose(pClientCtx);
+		}
+	}
+	return false;
+}
+
+bool IocpServer::handleClose(ClientContext* pClientCtx)
+{
+	showMessage("handleClose() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	closeClientSocket(pClientCtx);
+	releaseClientCtx(pClientCtx);
+	return true;
+}
+
+
+void IocpServer::closeClientSocket(ClientContext* pClientCtx)
+{
+	showMessage("closeClientSocket() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	Addr peerAddr;
+	SOCKET s;
+	{
+		LockGuard lk(&pClientCtx->m_csLock);
+		OnConnectionClosed(pClientCtx);
+		s = pClientCtx->m_socket;
+		peerAddr = pClientCtx->m_addr;
+		pClientCtx->m_socket = INVALID_SOCKET;
+	}
+	if (INVALID_SOCKET != s)
+	{
+		//OnConnectionClosed(s, peerAddr);
+		if (!Network::setLinger(s))
+		{
+			showMessage("setLinger failed! err=%d",
+				WSAGetLastError());
+		}
+		int ret = CancelIoEx((HANDLE)s, NULL);
+		//ERROR_NOT_FOUND : cannot find a request to cancel
+		if (0 == ret && ERROR_NOT_FOUND != WSAGetLastError())
+		{
+			showMessage("CancelIoEx failed! err=%d",
+				WSAGetLastError());
+		}
+		closesocket(s);
+		InterlockedDecrement(&m_nConnClientCnt);
+	}
+}
+
+
+//=====================================================================
+//				 ContextList 相关操作
+//=====================================================================
+ClientContext* IocpServer::allocateClientCtx(SOCKET s)
+{
+	showMessage("allocateClientCtx() s=%d", s);
+	ClientContext* pClientCtx = nullptr;
+	LockGuard lk(&m_csClientList);
+	if (m_freeClientList.empty())
+	{
+		pClientCtx = new ClientContext(s);
+	}
+	else
+	{
+		pClientCtx = m_freeClientList.front();
+		m_freeClientList.pop_front();
+		pClientCtx->m_nPendingIoCnt = 0;
+		pClientCtx->m_socket = s;
+	}
+	pClientCtx->reset();
+	return pClientCtx;
+}
+
+void IocpServer::releaseClientCtx(ClientContext* pClientCtx)
+{
+	showMessage("releaseClientCtx() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	//这里不删除，而是将ClientContext移到空闲链表
+	removeClientCtx(pClientCtx); //delete pClientCtx;
+}
+
+void IocpServer::addClientCtx(ClientContext* pClientCtx)
+{
+	showMessage("addClientCtx() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	LockGuard lk(&m_csClientList);
+	m_connectedClientList.emplace_back(pClientCtx);
+}
+
+void IocpServer::removeClientCtx(ClientContext* pClientCtx)
+{
+	showMessage("removeClientCtx() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	LockGuard lk(&m_csClientList);
+	{
+		auto it = std::find(m_connectedClientList.begin(),
+			m_connectedClientList.end(), pClientCtx);
+		if (m_connectedClientList.end() != it)
+		{
+			m_connectedClientList.remove(pClientCtx);
+			while (!pClientCtx->m_outBufQueue.empty())
+			{
+				pClientCtx->m_outBufQueue.pop();
+			}
+			pClientCtx->m_nPendingIoCnt = 0;
+			m_freeClientList.emplace_back(pClientCtx);
+		}
+	}
+}
+
+void IocpServer::removeAllClientCtxs()
+{
+	showMessage("removeAllClientCtxs()");
+	LockGuard lk(&m_csClientList);
+	m_connectedClientList.erase(m_connectedClientList.begin(),
+		m_connectedClientList.end());
+}
+
+void IocpServer::OnConnectionAccepted(ClientContext* pClientCtx)
+{
+	std::string addr = pClientCtx->m_addr;
+	showMessage("OnConnectionAccepted() pClientCtx=%p, s=%d, %s",
+		pClientCtx, pClientCtx->m_socket, addr.c_str());
+	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
+}
+
+void IocpServer::OnConnectionClosed(ClientContext* pClientCtx)
+{
+	std::string addr = pClientCtx->m_addr;
+	showMessage("OnConnectionClosed() pClientCtx=%p, s=%d, %s",
+		pClientCtx, pClientCtx->m_socket, addr.c_str());
+}
+
+void IocpServer::OnConnectionClosed(SOCKET s, Addr addr)
+{
+	showMessage("OnConnectionClosed() s=%d, %s", s, addr.toString().c_str());
+}
+
+void IocpServer::OnConnectionError(ClientContext* pClientCtx, int error)
+{
+	showMessage("OnConnectionError() pClientCtx=%p, s=%d, error=%d",
+		pClientCtx, pClientCtx->m_socket, error);
+}
+
+void IocpServer::OnRecvCompleted(ClientContext* pClientCtx)
+{
+	showMessage("OnRecvCompleted() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	echo(pClientCtx);
+}
+
+void IocpServer::OnSendCompleted(ClientContext* pClientCtx)
+{
+	showMessage("OnSendCompleted() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+}
+
+//for tcp_keepalive
+#include <mstcpip.h>
+bool IocpServer::setKeepAlive(ClientContext* pClientCtx,
+	LPOVERLAPPED lpOverlapped, int time, int interval)
+{
+	showMessage("setKeepAlive() pClientCtx=%p", pClientCtx);
+	if (!Network::setKeepAlive(pClientCtx->m_socket, true))
+	{
+		return false;
+	}
+	LPWSAOVERLAPPED pOl = lpOverlapped;
+	tcp_keepalive keepAlive;
+	keepAlive.onoff = 1;
+	keepAlive.keepalivetime = time * 1000;
+	keepAlive.keepaliveinterval = interval * 1000;
+	DWORD dwBytes;
+	//根据msdn这里要传一个OVERLAPPED结构
+	int ret = WSAIoctl(pClientCtx->m_socket, SIO_KEEPALIVE_VALS,
+		&keepAlive, sizeof(tcp_keepalive), NULL, 0,
+		&dwBytes, pOl, NULL);
+	if (SOCKET_ERROR == ret && WSA_IO_PENDING != WSAGetLastError())
+	{
+		showMessage("WSAIoctl failed with error: %d", WSAGetLastError());
+		return false;
+	}
+	return true;
+}
+
+/////////////////////////////////////////////////////////////////////
+// 判断客户端Socket是否已经断开，否则在一个无效的Socket上投递WSARecv操作会出现异常
+// 使用的方法是尝试向这个socket发送数据，判断这个socket调用的返回值
+// 因为如果客户端网络异常断开(例如客户端崩溃或者拔掉网线等)的时候，
+// 服务器端是无法收到客户端断开的通知的
+bool IocpServer::isSocketAlive(SOCKET s) noexcept
+{
+	const int nByteSent = send(s, "", 0, 0);
+	if (SOCKET_ERROR == nByteSent)
+	{
+		return false;
+	}
+	else
+	{
+		return true;
+	}
+}
+
+void IocpServer::echo(ClientContext* pClientCtx)
+{
+	showMessage("echo() pClientCtx=%p", pClientCtx);
+	SendData(pClientCtx, pClientCtx->m_inBuf.getBuffer(),
+		pClientCtx->m_inBuf.getBufferLen());
+	pClientCtx->m_inBuf.remove(pClientCtx->m_inBuf.getBufferLen());
 }
 
 void print_datetime()

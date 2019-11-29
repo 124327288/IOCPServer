@@ -56,6 +56,9 @@
     <ClInclude Include="IOCP\Network.h">
       <Filter>IOCP</Filter>
     </ClInclude>
+    <ClInclude Include="HTTP\HttpServer.h">
+      <Filter>HTTP</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -93,6 +96,9 @@
     </ClCompile>
     <ClCompile Include="IOCP\PerSocketContext.cpp">
       <Filter>IOCP</Filter>
+    </ClCompile>
+    <ClCompile Include="HTTP\HttpServer.cpp">
+      <Filter>HTTP</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

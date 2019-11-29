@@ -1,6 +1,7 @@
 #include "Network.h"
 #include <MswSock.h>
 #include <cstdio>
+#pragma comment(lib,"ws2_32.lib")
 
 bool Network::init()
 {

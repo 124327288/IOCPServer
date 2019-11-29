@@ -16,6 +16,11 @@ std::string Addr::toString() const
 	return os.str();
 }
 
+Addr::operator std::string() const
+{
+	return toString();
+}
+
 LPSOCKADDR_IN Addr::GetAddr()
 {
 	return &m_addr;
