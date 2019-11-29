@@ -1,5 +1,4 @@
 #include <ws2tcpip.h>
-#include <assert.h>
 #include "Network.h"
 #include "PerIoContext.h"
 #include "PerSocketContext.h"
@@ -16,7 +15,7 @@ SocketContext::SocketContext(const SOCKET& socket,
 void SocketContext::reset()
 {
 	SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
-	//m_socket = INVALID_SOCKET; //不能重置
+	m_socket = INVALID_SOCKET; 
 	m_nPendingIoCnt = 0;
 }
 
@@ -56,9 +55,11 @@ ClientContext::~ClientContext()
 
 void ClientContext::reset()
 {
-	assert(0 == m_nPendingIoCnt);
-	assert(m_outBufQueue.empty());
 	SocketContext::reset();
+	while (!m_outBufQueue.empty())
+	{//pop时，元素会自动析构
+		m_outBufQueue.pop();
+	}
 }
 
 void ClientContext::appendToBuffer(PBYTE pInBuf, size_t len)

@@ -1,6 +1,7 @@
 #pragma once
 #include <WinSock2.h>
 #include <Windows.h>
+#include <Assert.h>
 
 // 缓冲区长度 (1024*8) 之所以为什么设置8K，也是一个江湖上的经验值
 // 如果确实客户端发来的每组数据都比较少，那么就设置得小一些，省内存

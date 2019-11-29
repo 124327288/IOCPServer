@@ -313,9 +313,10 @@ bool IocpServer::Stop()
 {
 	showMessage("Stop()");
 	//同步等待所有工作线程退出
+	m_bIsShutdown = true;
 	exitIocpWorker();
 	// 清除客户端列表信息
-	removeAllClientCtxs();
+	releaseAllClientCtxs();
 	// 释放其他资源
 	this->deinitialize();
 	this->showMessage("停止监听");
@@ -610,7 +611,6 @@ bool IocpServer::handleAccept(ListenContext* pListenCtx,
 		pAcceptIoCtx->m_acceptSocket); //这是干嘛？
 	//创建新的ClientContext，原来的IoContext要用来接收新的连接
 	ClientContext* pClientCtx = allocateClientCtx(pAcceptIoCtx->m_acceptSocket);
-	addClientCtx(pClientCtx); //将客户端加入连接列表
 	//SOCKADDR_IN sockaddr = Network::getpeername(pClientCtx->m_socket);
 	pClientCtx->m_addr = *(SOCKADDR_IN*)clientAddr;
 	//先投递，避免下面绑定失败，还没有投递，会导致投递数减少
@@ -753,17 +753,17 @@ ClientContext* IocpServer::allocateClientCtx(SOCKET s)
 	ClientContext* pClientCtx = nullptr;
 	LockGuard lk(&m_csClientList);
 	if (m_freeClientList.empty())
-	{
+	{//重新分配
 		pClientCtx = new ClientContext(s);
 	}
 	else
-	{
+	{//取用原有
 		pClientCtx = m_freeClientList.front();
 		m_freeClientList.pop_front();
-		pClientCtx->m_nPendingIoCnt = 0;
 		pClientCtx->m_socket = s;
 	}
-	pClientCtx->reset();
+	assert(pClientCtx != nullptr);
+	addClientCtx(pClientCtx); 
 	return pClientCtx;
 }
 
@@ -780,7 +780,7 @@ void IocpServer::addClientCtx(ClientContext* pClientCtx)
 	showMessage("addClientCtx() pClientCtx=%p, s=%d",
 		pClientCtx, pClientCtx->m_socket);
 	LockGuard lk(&m_csClientList);
-	m_connectedClientList.emplace_back(pClientCtx);
+	m_usedClientList.emplace_back(pClientCtx);
 }
 
 void IocpServer::removeClientCtx(ClientContext* pClientCtx)
@@ -789,27 +789,32 @@ void IocpServer::removeClientCtx(ClientContext* pClientCtx)
 		pClientCtx, pClientCtx->m_socket);
 	LockGuard lk(&m_csClientList);
 	{
-		auto it = std::find(m_connectedClientList.begin(),
-			m_connectedClientList.end(), pClientCtx);
-		if (m_connectedClientList.end() != it)
-		{
-			m_connectedClientList.remove(pClientCtx);
-			while (!pClientCtx->m_outBufQueue.empty())
-			{
-				pClientCtx->m_outBufQueue.pop();
-			}
-			pClientCtx->m_nPendingIoCnt = 0;
+		auto it = std::find(m_usedClientList.begin(),
+			m_usedClientList.end(), pClientCtx);
+		if (m_usedClientList.end() != it)
+		{//找到后，先要将它从usedList中移除
+			m_usedClientList.remove(pClientCtx);
+			pClientCtx->reset(); //重置后，放入freeList
 			m_freeClientList.emplace_back(pClientCtx);
 		}
 	}
 }
 
-void IocpServer::removeAllClientCtxs()
+void IocpServer::releaseAllClientCtxs()
 {
 	showMessage("removeAllClientCtxs()");
 	LockGuard lk(&m_csClientList);
-	m_connectedClientList.erase(m_connectedClientList.begin(),
-		m_connectedClientList.end());
+	std::list<ClientContext*>::iterator it;
+	for (it = m_usedClientList.begin();
+		it != m_usedClientList.end(); it++)
+	{//要是否掉它们占用的内存
+		delete (*it);
+	}
+	for (it = m_freeClientList.begin();
+		it != m_freeClientList.end(); it++)
+	{//要是否掉它们占用的内存
+		delete (*it);
+	}
 }
 
 void IocpServer::OnConnectionAccepted(ClientContext* pClientCtx)

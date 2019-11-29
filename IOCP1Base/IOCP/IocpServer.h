@@ -51,8 +51,8 @@ private:
 	LPFN_ACCEPTEX m_lpfnAcceptEx; //acceptEx函数指针
 	ListenContext* m_pListenCtx; // 用于监听的Socket的Context信息
 	CRITICAL_SECTION m_csClientList; // 用于Worker线程同步的互斥量
-	std::list<ClientContext*> m_connectedClientList; //已连接客户端链表
-	std::list<ClientContext*> m_freeClientList; //空闲的ClientContext链表
+	std::list<ClientContext*> m_usedClientList; //已连接客户端链表
+	std::list<ClientContext*> m_freeClientList; //空闲的客户端链表
 
 public:
 	IocpServer(short listenPort = DEFAULT_PORT, int maxConnCount = MAX_CONN_COUNT);
@@ -99,7 +99,7 @@ protected:
 	void addClientCtx(ClientContext* pClientCtx);
 	void releaseClientCtx(ClientContext* pClientCtx);
 	void removeClientCtx(ClientContext* pClientCtx);
-	void removeAllClientCtxs();
+	void releaseAllClientCtxs();
 
 	bool setKeepAlive(ClientContext* pClientCtx,
 		LPOVERLAPPED lpOverlapped, int time = 1, int interval = 1);
