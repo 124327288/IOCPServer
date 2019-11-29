@@ -28,18 +28,18 @@ void HttpServer::OnRecvCompleted(ClientContext* pClientCtx)
 		if (ret > 0)
 		{//解析完成
 			showMessage("tryDecode ok");
-			showMessage(codec.m_req.m_method.c_str());
-			showMessage(codec.m_req.m_url.c_str());
-			showMessage(codec.m_req.m_body.toString().c_str());
-			if (codec.m_req.m_url == "/")
+			showMessage(codec.getReqMethod().c_str());
+			showMessage(codec.getReqUrl().c_str());
+			showMessage(codec.getReqBody().c_str());
+			if (codec.getReqUrl() == "/")
 			{
 				string rspMsg = codec.responseMessage("hello", HttpStatus::ok);
 				SendData(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());
 			}
-			else 
+			else
 			{
 				char* pBuf = NULL;
-				string dirFile = "./files" + codec.m_req.m_url;
+				string dirFile = "./files" + codec.getReqUrl();
 				int len = readFile(dirFile, pBuf);
 				if (len > 0 && pBuf)
 				{
@@ -51,7 +51,7 @@ void HttpServer::OnRecvCompleted(ClientContext* pClientCtx)
 					rspMsg = codec.responseChunkedEnd(); //结束
 					Send(pClientCtx, (PBYTE)rspMsg.c_str(), rspMsg.length());*/
 					string contentType = "application/x-zip-compressed";
-					if (codec.m_req.m_url == "/favicon.ico")
+					if (codec.getReqUrl() == "/favicon.ico")
 					{
 						contentType = "image/x-icon";
 					}

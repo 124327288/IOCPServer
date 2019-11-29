@@ -16,7 +16,7 @@ struct SocketContext
 	Addr m_addr; //客户端地址
 	ULONG m_nPendingIoCnt;
 
-	SocketContext(const SOCKET& socket = INVALID_SOCKET, 
+	SocketContext(const SOCKET& socket = INVALID_SOCKET,
 		ULONG nPendingIoCnt = 0);
 	void reset();
 };
@@ -24,7 +24,7 @@ struct SocketContext
 struct ListenContext : public SocketContext
 {
 	//接收连接的IO上下文列表
-	std::vector<AcceptIoContext*> m_acceptIoCtxList; 
+	std::vector<AcceptIoContext*> m_acceptIoCtxList;
 	ListenContext(short port, const std::string& ip = "0.0.0.0");
 };
 
@@ -38,12 +38,12 @@ struct ClientContext : public SocketContext
 	//为什么需要保护呢？感觉不需要保护啊！！！
 	CRITICAL_SECTION m_csLock; //保护ClientContext
 	RecvIoContext* m_recvIoCtx;
-	SendIoContext* m_sendIoCtx;	
+	SendIoContext* m_sendIoCtx;
 	std::queue<Buffer> m_outBufQueue;
 	Buffer m_outBuf;
 	Buffer m_inBuf;
-	
-	ClientContext(const SOCKET& socket = INVALID_SOCKET);	
+
+	ClientContext(const SOCKET& socket = INVALID_SOCKET);
 	~ClientContext(); //socket由IocpServer释放
 	void reset();
 

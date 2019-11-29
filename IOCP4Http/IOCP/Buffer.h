@@ -13,7 +13,7 @@ protected:
 
 public:
 	Buffer();
-	Buffer(const Buffer &b);
+	Buffer(const Buffer& b);
 	virtual ~Buffer();
 	operator Slice();
 	void clear();
@@ -29,7 +29,7 @@ public:
 	void copy(Buffer& buf); //const不能加
 	PBYTE getBuffer(UINT nPos = 0);
 	UINT getBufferLen(); //数据大小
-	void writeFile(const std::string& fileName);	
+	void writeFile(const std::string& fileName);
 
 protected:
 	UINT reallocateBuffer(UINT nSize); //重新分配

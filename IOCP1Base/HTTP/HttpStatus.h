@@ -42,5 +42,5 @@ enum HttpStatus
 	gateway_timeout = 504,
 	http_version_not_supported = 505,
 
-	server_busy = 600,	
+	server_busy = 600,
 };

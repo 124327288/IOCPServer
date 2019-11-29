@@ -32,38 +32,31 @@ struct IoContext
 	OVERLAPPED m_Overlapped; //每一个重叠io操作都要有一个OVERLAPPED结构
 	PostType m_PostType; // 标识网络操作的类型(对应上面的枚举)
 	WSABUF m_wsaBuf; // WSA类型的缓冲区，用于给重叠操作传参数的
-	SOCKET m_acceptSocket; // 这个网络操作所使用的Socket
-	char m_szBuffer[MAX_BUFFER_LEN]; // 这个是WSABUF里具体存字符的缓冲区
-	DWORD m_nTotalBytes; //数据总的字节数
-	DWORD m_nSentBytes;	//已经发送的字节数，如未发送数据则设置为0
 
-	//构造函数
-	IoContext()
-	{
-		m_PostType = PostType::UNKNOWN;
-		ZeroMemory(&m_Overlapped, sizeof(m_Overlapped));
-		ZeroMemory(m_szBuffer, MAX_BUFFER_LEN);
-		m_acceptSocket = INVALID_SOCKET;
-		m_wsaBuf.len = MAX_BUFFER_LEN;
-		m_wsaBuf.buf = m_szBuffer;
-		m_nTotalBytes = 0;
-		m_nSentBytes = 0;
-	}
-	//析构函数
-	~IoContext()
-	{
-		if (m_acceptSocket != INVALID_SOCKET)
-		{
-			//SocketContext已经关闭过了
-			//closesocket(m_sockAccept); //!
-			m_acceptSocket = INVALID_SOCKET;
-		}
-	}
-	//重置缓冲区内容
-	void ResetBuffer()
-	{
-		ZeroMemory(m_szBuffer, MAX_BUFFER_LEN);
-		m_wsaBuf.len = MAX_BUFFER_LEN;
-		m_wsaBuf.buf = m_szBuffer;
-	}
+	IoContext(PostType type);
+	~IoContext();
+	void ResetBuffer();
+};
+
+struct AcceptIoContext : public IoContext
+{
+	AcceptIoContext(SOCKET acceptSocket = INVALID_SOCKET);
+	~AcceptIoContext();
+	void ResetBuffer();
+	SOCKET m_acceptSocket; //接受连接的socket
+	BYTE m_acceptBuf[MAX_BUFFER_LEN]; //用于acceptEx接收数据
+};
+
+struct RecvIoContext : public IoContext
+{
+	RecvIoContext();
+	~RecvIoContext();
+	void ResetBuffer();
+	BYTE m_recvBuf[MAX_BUFFER_LEN];
+};
+
+struct SendIoContext : public IoContext
+{
+	SendIoContext();
+	~SendIoContext();
 };

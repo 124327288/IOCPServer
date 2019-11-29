@@ -24,7 +24,10 @@ struct HttpCodec
 	string responseChunkedBegin(long len);
 	string responseChunkedEnd();
 
-//private:
+	string getReqMethod();
+	string getReqUrl();
+	string getReqBody();
+private:
 	Slice m_inBuf;
 	string m_outBuf;
 	HttpRequest m_req;

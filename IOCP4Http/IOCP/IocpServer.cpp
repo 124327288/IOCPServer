@@ -71,7 +71,7 @@ DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 				pIoContext, dwBytesTransferred);
 			break;
 		case PostType::RECV:
-			pThis->handleRecv((ClientContext*)pSoContext, 
+			pThis->handleRecv((ClientContext*)pSoContext,
 				pIoContext, dwBytesTransferred);
 
 			break;
@@ -268,7 +268,7 @@ bool IocpServer::initIOCP(ListenContext* pListenCtx)
 bool IocpServer::initIocpWorker()
 {
 	this->showMessage("初始化WorkerThread(),Pid=%d, Tid=%d",
-		GetCurrentProcessId(),GetCurrentThreadId());
+		GetCurrentProcessId(), GetCurrentThreadId());
 	SYSTEM_INFO sysInfo;
 	GetSystemInfo(&sysInfo);
 	// 根据本机中的处理器数量，建立对应的线程数
@@ -692,6 +692,38 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 	}
 }
 
+ClientContext* IocpServer::allocateClientCtx(SOCKET s)
+{
+	showMessage("allocateClientCtx() s=%d", s);
+	ClientContext* pClientCtx = nullptr;
+	LockGuard lk(&m_csClientList);
+	if (m_freeClientList.empty())
+	{
+		pClientCtx = new ClientContext(s);
+	}
+	else
+	{
+		pClientCtx = m_freeClientList.front();
+		m_freeClientList.pop_front();
+		pClientCtx->m_nPendingIoCnt = 0;
+		pClientCtx->m_socket = s;
+	}
+	pClientCtx->reset();
+	return pClientCtx;
+}
+
+void IocpServer::releaseClientCtx(ClientContext* pClientCtx)
+{
+	showMessage("releaseClientCtx() pClientCtx=%p, s=%d",
+		pClientCtx, pClientCtx->m_socket);
+	ASSERT(pClientCtx->m_nPendingIoCnt <= 0);
+	{
+		removeClientCtx(pClientCtx);
+		//这里不删除，而是将ClientContext移到空闲链表
+		//delete pClientCtx;
+	}
+}
+
 void IocpServer::addClientCtx(ClientContext* pClientCtx)
 {
 	showMessage("addClientCtx() pClientCtx=%p, s=%d",
@@ -729,38 +761,6 @@ void IocpServer::removeAllClientCtxs()
 		m_connectedClientList.end());
 }
 
-ClientContext* IocpServer::allocateClientCtx(SOCKET s)
-{
-	showMessage("allocateClientCtx() s=%d", s);
-	ClientContext* pClientCtx = nullptr;
-	LockGuard lk(&m_csClientList);
-	if (m_freeClientList.empty())
-	{
-		pClientCtx = new ClientContext(s);
-	}
-	else
-	{
-		pClientCtx = m_freeClientList.front();
-		m_freeClientList.pop_front();
-		pClientCtx->m_nPendingIoCnt = 0;
-		pClientCtx->m_socket = s;
-	}
-	pClientCtx->reset();
-	return pClientCtx;
-}
-
-void IocpServer::releaseClientCtx(ClientContext* pClientCtx)
-{
-	showMessage("releaseClientCtx() pClientCtx=%p, s=%d",
-		pClientCtx, pClientCtx->m_socket);
-	ASSERT(pClientCtx->m_nPendingIoCnt <= 0);
-	{
-		removeClientCtx(pClientCtx);
-		//这里不删除，而是将ClientContext移到空闲链表
-		//delete pClientCtx;
-	}
-}
-
 void IocpServer::OnConnectionAccepted(ClientContext* pClientCtx)
 {
 	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
@@ -776,7 +776,7 @@ void IocpServer::OnConnectionClosed(SOCKET s, Addr addr)
 
 void IocpServer::OnConnectionError(ClientContext* pClientCtx, int error)
 {
-	showMessage("OnConnectionError() pClientCtx=%p, s=%d, error=%d", 
+	showMessage("OnConnectionError() pClientCtx=%p, s=%d, error=%d",
 		pClientCtx, pClientCtx->m_socket, error);
 }
 
