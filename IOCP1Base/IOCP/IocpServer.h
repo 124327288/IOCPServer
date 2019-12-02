@@ -22,7 +22,7 @@ constexpr int EXIT_THREAD = 0; //工作线程退出标志
 constexpr int MAX_POST_ACCEPT = 10; //最大投递AcceptEx请求的数量
 constexpr int MAX_LISTEN_SOCKET = SOMAXCONN; // 同时监听的SOCKET数量
 constexpr int WORKER_THREADS_PER_PROCESSOR = 2; // CPU每核的线程数
-constexpr int MAX_CONN_COUNT = 100000; //最大并发连接数
+constexpr int MAX_CONN_COUNT = 1000; //最大并发连接数
 constexpr int DEFAULT_PORT = 10240; //默认端口号
 
 //============================================================
