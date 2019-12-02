@@ -37,28 +37,29 @@ DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 			pThis->showMessage("EXIT_THREAD");
 			break;
 		}
-		// shutdown状态则停止接受连接
-		if (pThis->m_bIsShutdown && pIoContext->m_PostType == PostType::ACCEPT)
-		{//???有啥用???
-			break; //continue;
-		}
-		if (!bRet)
-		{	//返回值为false，表示出错
-			const DWORD dwErr = GetLastError();
-			// 显示一下提示信息
-			if (!pThis->handleError((ClientContext*)pSoContext, dwErr))
-			{
-				break;
+		if (pIoContext->m_PostType == PostType::ACCEPT)
+		{//接受socket请求的处理
+			// shutdown状态则停止接受连接
+			if (pThis->m_bIsShutdown)
+			{//已经关闭，就不再accept了
+				continue;
 			}
-			continue;
 		}
-		// 判断是否有客户端断开了 //对端关闭
-		if ((0 == dwBytesTransferred)
-			&& (PostType::ACCEPT != pIoContext->m_PostType))
-		{
-			pThis->OnConnectionClosed((ClientContext*)pSoContext);
-			pThis->handleClose((ClientContext*)pSoContext);
-			continue;
+		else
+		{//收发数据的处理
+			if (!bRet)
+			{//有错误
+				int nErr = GetLastError();
+				pThis->handleError((ClientContext*)pSoContext, nErr);				
+				continue; 
+			}
+			// 判断是否有客户端断开了 //对端关闭
+			if (0 == dwBytesTransferred)
+			{
+				pThis->OnConnectionClosed((ClientContext*)pSoContext);
+				pThis->handleClose((ClientContext*)pSoContext);
+				continue;
+			}
 		}
 		switch (pIoContext->m_PostType)
 		{
