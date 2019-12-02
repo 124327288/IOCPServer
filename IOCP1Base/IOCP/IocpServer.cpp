@@ -674,31 +674,24 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 {
 	showMessage("closeClientSocket() pClientCtx=%p, s=%d",
 		pClientCtx, pClientCtx->m_socket);
-	Addr peerAddr;
-	SOCKET s;
+	if (INVALID_SOCKET != pClientCtx->m_socket)
 	{
 		LockGuard lk(&pClientCtx->m_csLock);
+		InterlockedDecrement(&m_nConnClientCnt);
 		OnConnectionClosed(pClientCtx);
-		s = pClientCtx->m_socket;
-		peerAddr = pClientCtx->m_addr;
-		pClientCtx->m_socket = INVALID_SOCKET;
-	}
-	if (INVALID_SOCKET != s)
-	{
-		if (!Network::setLinger(s))
+		if (!Network::setLinger(pClientCtx->m_socket))
 		{
 			showMessage("setLinger failed! err=%d",
 				WSAGetLastError());
 		}
-		int ret = CancelIoEx((HANDLE)s, NULL);
+		int ret = CancelIoEx((HANDLE)pClientCtx->m_socket, NULL);
 		//ERROR_NOT_FOUND : cannot find a request to cancel
 		if (0 == ret && ERROR_NOT_FOUND != WSAGetLastError())
 		{
 			showMessage("CancelIoEx failed! err=%d",
 				WSAGetLastError());
 		}
-		RELEASE_SOCKET(s); //让系统慢慢释放它
-		InterlockedDecrement(&m_nConnClientCnt);
+		RELEASE_SOCKET(pClientCtx->m_socket);
 	}
 }
 
