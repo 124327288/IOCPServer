@@ -635,7 +635,6 @@ bool IocpServer::handleSend(ClientContext* pClientCtx,
 	if (0 == pClientCtx->m_outBuf.getBufferLen())
 	{
 		pClientCtx->m_outBuf.clear();
-
 		if (!pClientCtx->m_outBufQueue.empty())
 		{
 			pClientCtx->m_outBuf.copy(pClientCtx->m_outBufQueue.front());
@@ -794,12 +793,14 @@ void IocpServer::OnConnectionClosed(ClientContext* pClientCtx)
 	std::string addr = pClientCtx->m_addr;
 	showMessage("OnConnectionClosed() pClientCtx=%p, s=%d, %s",
 		pClientCtx, pClientCtx->m_socket, addr.c_str());
+	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
 }
 
 void IocpServer::OnConnectionError(ClientContext* pClientCtx, int error)
 {
 	showMessage("OnConnectionError() pClientCtx=%p, s=%d, error=%d",
 		pClientCtx, pClientCtx->m_socket, error);
+	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
 }
 
 void IocpServer::OnRecvCompleted(ClientContext* pClientCtx)

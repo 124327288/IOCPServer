@@ -90,6 +90,8 @@ void ClientContext::reset()
 	{//pop时，元素会自动析构
 		m_outBufQueue.pop();
 	}
+	m_outBuf.clear();
+	m_inBuf.clear();
 }
 
 void ClientContext::appendToBuffer(PBYTE pInBuf, size_t len)
