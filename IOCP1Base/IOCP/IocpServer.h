@@ -108,7 +108,6 @@ protected:
 	// 事件通知函数(派生类重载此族函数)
 	virtual void OnConnectionAccepted(ClientContext* pClientCtx);
 	virtual void OnConnectionClosed(ClientContext* pClientCtx);
-	virtual void OnConnectionClosed(SOCKET s, Addr addr);
 	virtual void OnConnectionError(ClientContext* pClientCtx, int error);
 	virtual void OnRecvCompleted(ClientContext* pClientCtx);
 	virtual void OnSendCompleted(ClientContext* pClientCtx);

@@ -25,13 +25,6 @@ constexpr int WORKER_THREADS_PER_PROCESSOR = 2; // CPU每核的线程数
 constexpr int MAX_CONN_COUNT = 100000; //最大并发连接数
 constexpr int DEFAULT_PORT = 10240; //默认端口号
 
-//#define RELEASE_ARRAY(x) {if(x != nullptr ){delete[] x;x=nullptr;}} 
-#define RELEASE_POINTER(x) {if(x != nullptr ){delete x;x=nullptr;}} 
-#define RELEASE_HANDLE(x) {if(x != nullptr && x!=INVALID_HANDLE_VALUE)\
-	{ CloseHandle(x);x = INVALID_HANDLE_VALUE;}} // 释放句柄宏
-#define RELEASE_SOCKET(x) {if(x != nullptr && x !=INVALID_SOCKET) \
-	{ closesocket(x);x=INVALID_SOCKET;}} // 释放Socket宏
-
 //============================================================
 //				IocpServer类定义
 //============================================================
@@ -91,7 +84,6 @@ protected:
 	bool handleRecv(ClientContext* pClientCtx, IoContext* pIoCtx, DWORD dwBytes);
 	bool handleSend(ClientContext* pClientCtx, IoContext* pIoCtx, DWORD dwBytes);
 	bool handleClose(ClientContext* pClientCtx);
-
 	void closeClientSocket(ClientContext* pClientCtx);
 
 	//管理已连接客户端链表，线程安全
@@ -116,7 +108,6 @@ protected:
 	// 事件通知函数(派生类重载此族函数)
 	virtual void OnConnectionAccepted(ClientContext* pClientCtx);
 	virtual void OnConnectionClosed(ClientContext* pClientCtx);
-	virtual void OnConnectionClosed(SOCKET s, Addr addr);
 	virtual void OnConnectionError(ClientContext* pClientCtx, int error);
 	virtual void OnRecvCompleted(ClientContext* pClientCtx);
 	virtual void OnSendCompleted(ClientContext* pClientCtx);

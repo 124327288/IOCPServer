@@ -77,7 +77,7 @@ ClientContext::ClientContext(const SOCKET& socket) :
 
 ClientContext::~ClientContext()
 {
-	reset(); //socket由IocpServer释放?
+	reset(); //socket可以先释放
 	RELEASE_POINTER(m_recvIoCtx);
 	RELEASE_POINTER(m_sendIoCtx);
 	LeaveCriticalSection(&m_csLock);

@@ -12,10 +12,15 @@ SocketContext::SocketContext(const SOCKET& socket,
 	SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
 }
 
+SocketContext::~SocketContext()
+{
+	RELEASE_SOCKET(m_socket);
+}
+
 void SocketContext::reset()
 {
 	SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
-	m_socket = INVALID_SOCKET; 
+	RELEASE_SOCKET(m_socket);
 	m_nPendingIoCnt = 0;
 }
 
@@ -35,6 +40,32 @@ ListenContext::ListenContext(short port, const std::string& ip)
 	assert(SOCKET_ERROR != m_socket);
 }
 
+ListenContext::~ListenContext()
+{
+	std::vector<AcceptIoContext*>::iterator it;
+	for (it = m_acceptIoCtxList.begin();
+		it != m_acceptIoCtxList.end(); ++it)
+	{//将所有的acceptIoCtx释放掉，对应的socket关闭掉
+		AcceptIoContext* pAcceptIoCtx = (*it);
+		int bRet = CancelIoEx((HANDLE)pAcceptIoCtx->m_acceptSocket,
+			&pAcceptIoCtx->m_Overlapped);  //取消掉IO
+		//int bRet = CancelIo((HANDLE)pAcceptIoCtx->m_acceptSocket);
+		if (bRet)
+		{
+			while (!HasOverlappedIoCompleted(&pAcceptIoCtx->m_Overlapped))
+			{//等IO结束
+				Sleep(1);
+			}
+		}
+		else
+		{
+			printf("CancelIoEx failed! err=%d", WSAGetLastError());
+			//continue; // return; //这个是匿名函数
+		}
+		RELEASE_POINTER(pAcceptIoCtx);
+	}
+	m_acceptIoCtxList.clear();
+}
 
 //ClientContext
 ClientContext::ClientContext(const SOCKET& socket) :
@@ -46,10 +77,9 @@ ClientContext::ClientContext(const SOCKET& socket) :
 
 ClientContext::~ClientContext()
 {
-	delete m_recvIoCtx;
-	delete m_sendIoCtx;
-	m_recvIoCtx = nullptr;
-	m_sendIoCtx = nullptr;
+	reset(); //socket可以先释放
+	RELEASE_POINTER(m_recvIoCtx);
+	RELEASE_POINTER(m_sendIoCtx);
 	LeaveCriticalSection(&m_csLock);
 }
 

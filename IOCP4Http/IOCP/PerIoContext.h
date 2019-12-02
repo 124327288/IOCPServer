@@ -7,6 +7,13 @@
 // 如果确实客户端发来的每组数据都比较少，那么就设置得小一些，省内存
 constexpr int MAX_BUFFER_LEN = (1024 * 8);
 
+//#define RELEASE_ARRAY(x) {if(x != nullptr ){delete[] x;x=nullptr;}} 
+#define RELEASE_POINTER(x) {if(x != nullptr ){delete x;x=nullptr;}} 
+#define RELEASE_HANDLE(x) {if(x != nullptr && x!=INVALID_HANDLE_VALUE)\
+	{ CloseHandle(x);x = INVALID_HANDLE_VALUE;}} // 释放句柄宏
+#define RELEASE_SOCKET(x) {if(x != NULL && x !=INVALID_SOCKET) \
+	{ closesocket(x);x=INVALID_SOCKET;}} // 释放Socket宏
+
 // 在完成端口上投递的I/O操作的类型
 enum class PostType
 {

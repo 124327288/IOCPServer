@@ -18,6 +18,7 @@ struct SocketContext
 
 	SocketContext(const SOCKET& socket = INVALID_SOCKET,
 		ULONG nPendingIoCnt = 0);
+	~SocketContext();
 	void reset();
 };
 
@@ -26,6 +27,7 @@ struct ListenContext : public SocketContext
 	//接收连接的IO上下文列表
 	std::vector<AcceptIoContext*> m_acceptIoCtxList;
 	ListenContext(short port, const std::string& ip = "0.0.0.0");
+	~ListenContext();
 };
 
 //============================================================================

@@ -37,31 +37,30 @@ DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 			pThis->showMessage("EXIT_THREAD");
 			break;
 		}
-		// shutdown状态则停止接受连接
-		if (pThis->m_bIsShutdown && pIoContext->m_PostType == PostType::ACCEPT)
-		{//???有啥用???
-			break; //continue;
-		}
-
-		if (pIoContext->m_PostType != PostType::ACCEPT)
-		{
-			//文档说超时的时候触发，INFINITE不会触发
-			//实际上curl命令行ctrl+c强制关闭连接也会触发
-			if (!bRet)
-			{
-				pThis->showMessage("GetQueuedCompletionStatus error=%d",
-					WSAGetLastError());
-				pThis->handleClose((ClientContext*)pSoContext);
+		if (pIoContext->m_PostType == PostType::ACCEPT)
+		{//接受socket请求的处理
+			// shutdown状态则停止接受连接
+			if (pThis->m_bIsShutdown)
+			{//已经关闭，就不再accept了
 				continue;
 			}
-			//对端关闭
+		}
+		else
+		{//收发数据的处理
+			if (!bRet)
+			{//有错误
+				int nErr = GetLastError();
+				pThis->handleError((ClientContext*)pSoContext, nErr);				
+				continue; 
+			}
+			// 判断是否有客户端断开了 //对端关闭
 			if (0 == dwBytesTransferred)
 			{
+				pThis->OnConnectionClosed((ClientContext*)pSoContext);
 				pThis->handleClose((ClientContext*)pSoContext);
 				continue;
 			}
 		}
-
 		switch (pIoContext->m_PostType)
 		{
 		case PostType::ACCEPT:
@@ -71,7 +70,6 @@ DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 		case PostType::RECV:
 			pThis->handleRecv((ClientContext*)pSoContext,
 				pIoContext, dwBytesTransferred);
-
 			break;
 		case PostType::SEND:
 			pThis->handleSend((ClientContext*)pSoContext,
@@ -117,7 +115,7 @@ IocpServer::IocpServer(short listenPort, int maxConnCount) :
 IocpServer::~IocpServer()
 {
 	// 确保资源彻底释放
-	this->Stop();
+	Stop();
 	Network::deinit();
 	showMessage("~IocpServer()");
 	// 删除客户端列表的互斥量
@@ -133,31 +131,31 @@ bool IocpServer::Start()
 	// 初始化Socket
 	if (!initSocket(m_listenPort))
 	{
-		this->showMessage("监听Socket初始化失败！");
-		this->deinitialize();
+		showMessage("监听Socket初始化失败！");
+		deinitialize();
 		return false;
 	}
 	else
 	{
-		this->showMessage("监听Socket初始化完毕");
+		showMessage("监听Socket初始化完毕");
 	}
 	// 初始化IOCP
 	if (!initIOCP(m_pListenCtx))
 	{
-		this->showMessage("初始化IOCP失败！");
-		this->deinitialize();
+		showMessage("初始化IOCP失败！");
+		deinitialize();
 		return false;
 	}
 	else
 	{
-		this->showMessage("初始化IOCP完毕！");
+		showMessage("初始化IOCP完毕！");
 	}
 	if (!initIocpWorker())
 	{
-		this->deinitialize();
+		deinitialize();
 		return false;
 	}
-	this->showMessage("系统准备就绪，等候连接...");
+	showMessage("系统准备就绪，等候连接...");
 	return true;
 }
 
@@ -165,7 +163,7 @@ bool IocpServer::Start()
 // 初始化Socket
 bool IocpServer::initSocket(short listenPort)
 {
-	this->showMessage("初始化Socket()");
+	showMessage("初始化Socket()");
 	// 生成用于监听的Socket，ListenContext内部创建
 	m_pListenCtx = new ListenContext(listenPort);
 
@@ -173,23 +171,23 @@ bool IocpServer::initSocket(short listenPort)
 	if (SOCKET_ERROR == Network::bind(m_pListenCtx->m_socket,
 		m_pListenCtx->m_addr.GetAddr()))
 	{
-		this->showMessage("bind()函数执行错误");
+		showMessage("bind()函数执行错误");
 		return false;
 	}
 	else
 	{
-		this->showMessage("bind() 完成");
+		showMessage("bind() 完成");
 	}
 
 	// 开始进行监听
 	if (SOCKET_ERROR == Network::listen(m_pListenCtx->m_socket))
 	{
-		this->showMessage("listen()出错, err=%d", WSAGetLastError());
+		showMessage("listen()出错, err=%d", WSAGetLastError());
 		return false;
 	}
 	else
 	{
-		this->showMessage("listen() 完成");
+		showMessage("listen() 完成");
 	}
 
 	// 使用AcceptEx函数，因为这个是属于WinSock2规范之外的
@@ -201,7 +199,7 @@ bool IocpServer::initSocket(short listenPort)
 		sizeof(GuidAcceptEx), &m_lpfnAcceptEx,
 		sizeof(m_lpfnAcceptEx), &dwBytes, NULL, NULL))
 	{
-		this->showMessage("获取AcceptEx失败。err=%d", WSAGetLastError());
+		showMessage("获取AcceptEx失败。err=%d", WSAGetLastError());
 		return false;
 	}
 
@@ -212,7 +210,7 @@ bool IocpServer::initSocket(short listenPort)
 		sizeof(GuidAddrs), &m_lpfnGetAcceptExSockAddrs,
 		sizeof(m_lpfnGetAcceptExSockAddrs), &dwBytes, NULL, NULL))
 	{
-		this->showMessage("获取AcceptExAddr失败。err=%d", WSAGetLastError());
+		showMessage("获取AcceptExAddr失败。err=%d", WSAGetLastError());
 		return false;
 	}
 	return true;
@@ -222,7 +220,7 @@ bool IocpServer::initSocket(short listenPort)
 // 初始化完成端口
 bool IocpServer::initIOCP(ListenContext* pListenCtx)
 {
-	this->showMessage("初始化IOCP()");
+	showMessage("初始化IOCP()");
 	//If this parameter is zero, the system allows as many 
 	//concurrently running threads as there are processors in the system.
 	//如果此参数为零，则系统允许的并发运行线程数量与系统中的处理器数量相同。
@@ -230,7 +228,7 @@ bool IocpServer::initIOCP(ListenContext* pListenCtx)
 		nullptr, 0, 0); //NumberOfConcurrentThreads
 	if (nullptr == m_hIOCP)
 	{
-		this->showMessage("建立IOCP失败！err=%d!", WSAGetLastError());
+		showMessage("建立IOCP失败！err=%d!", WSAGetLastError());
 		return false;
 	}
 
@@ -238,12 +236,12 @@ bool IocpServer::initIOCP(ListenContext* pListenCtx)
 	if (NULL == CreateIoCompletionPort((HANDLE)pListenCtx->m_socket,
 		m_hIOCP, (DWORD)pListenCtx, 0)) //CompletionKey
 	{
-		this->showMessage("绑定IOCP失败！err=%d", WSAGetLastError());
+		showMessage("绑定IOCP失败！err=%d", WSAGetLastError());
 		return false;
 	}
 	else
 	{
-		this->showMessage("绑定IOCP完成");
+		showMessage("绑定IOCP完成");
 	}
 
 	// 为AcceptEx 准备参数，然后投递AcceptEx I/O请求
@@ -257,13 +255,13 @@ bool IocpServer::initIOCP(ListenContext* pListenCtx)
 			return false;
 		}
 	}
-	this->showMessage("投递 %d 个AcceptEx请求完毕", MAX_POST_ACCEPT);
+	showMessage("投递 %d 个AcceptEx请求完毕", MAX_POST_ACCEPT);
 	return true;
 }
 
 bool IocpServer::initIocpWorker()
 {
-	this->showMessage("初始化WorkerThread(),Pid=%d, Tid=%d",
+	showMessage("初始化WorkerThread(),Pid=%d, Tid=%d",
 		GetCurrentProcessId(), GetCurrentThreadId());
 	SYSTEM_INFO sysInfo;
 	GetSystemInfo(&sysInfo);
@@ -282,7 +280,7 @@ bool IocpServer::initIocpWorker()
 		m_hWorkerThreads.emplace_back(hWorker);
 		++m_nWorkerCnt;
 	}
-	this->showMessage("建立WorkerThread %d 个", m_nWorkerCnt);
+	showMessage("建立WorkerThread %d 个", m_nWorkerCnt);
 	return true;
 }
 
@@ -293,7 +291,7 @@ void IocpServer::deinitialize()
 	//关闭工作线程句柄
 	std::vector<HANDLE>::iterator it;
 	for (it = m_hWorkerThreads.begin();
-		it != m_hWorkerThreads.end(); it++)
+		it != m_hWorkerThreads.end(); ++it)
 	{
 		RELEASE_HANDLE(*it);
 	}
@@ -304,7 +302,7 @@ void IocpServer::deinitialize()
 	RELEASE_HANDLE(m_hIOCP);
 	// 关闭监听Socket
 	RELEASE_POINTER(m_pListenCtx);
-	this->showMessage("释放资源完毕");
+	showMessage("释放资源完毕");
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -318,8 +316,8 @@ bool IocpServer::Stop()
 	// 清除客户端列表信息
 	releaseAllClientCtxs();
 	// 释放其他资源
-	this->deinitialize();
-	this->showMessage("停止监听");
+	deinitialize();
+	showMessage("停止监听");
 	return true;
 }
 
@@ -352,7 +350,7 @@ bool IocpServer::SendData(ClientContext* pClientCtx, PBYTE pData, UINT len)
 	showMessage("SendData() pClientCtx=%p len=%d", pClientCtx, len);
 	if (!pClientCtx || !pData || len <= 0)
 	{
-		this->showMessage("SendData()，参数有误");
+		showMessage("SendData()，参数有误");
 		return false;
 	}
 	if (0 == pClientCtx->m_outBuf.getBufferLen())
@@ -388,35 +386,6 @@ int IocpServer::exitIoLoop(SocketContext* pSocketCtx)
 	return InterlockedDecrement(&pSocketCtx->m_nPendingIoCnt);
 }
 
-#if 0
-bool IocpServer::clearAcceptIoContext(ListenContext* pListenContext)
-{
-	showMessage("clearAcceptIoContext()");
-	std::vector<AcceptIoContext*>::iterator it;
-	for (it = pListenContext->m_acceptIoCtxList.begin();
-		it != pListenContext->m_acceptIoCtxList.end(); it++)
-	{
-		AcceptIoContext* pAcceptIoCtx = *it;
-		int bRet = CancelIoEx((HANDLE)pAcceptIoCtx->m_acceptSocket,
-			&pAcceptIoCtx->m_Overlapped);
-		//int bRet = CancelIo((HANDLE)pAcceptIoCtx->m_acceptSocket);
-		if (!bRet)
-		{
-			printf("CancelIoEx failed with error: %d", WSAGetLastError());
-			//continue; // return; //这个是匿名函数
-		}
-		closesocket(pAcceptIoCtx->m_acceptSocket);
-		pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
-		while (!HasOverlappedIoCompleted(&pAcceptIoCtx->m_Overlapped))
-		{
-			Sleep(1);
-		}
-		delete pAcceptIoCtx;
-	}
-	pListenContext->m_acceptIoCtxList.clear();
-	return true;
-}
-#endif 
 
 
 //================================================================================
@@ -498,7 +467,7 @@ PostResult IocpServer::postRecv(ClientContext* pClientCtx)
 			int nErr = WSAGetLastError();
 			if (WSA_IO_PENDING != nErr)
 			{// Overlapped I/O operation is in progress.
-				this->showMessage("投递WSARecv失败！err=%d", nErr);
+				showMessage("投递WSARecv失败！err=%d", nErr);
 				return PostResult::FAILED;
 			}
 		}
@@ -551,33 +520,30 @@ bool IocpServer::handleError(ClientContext* pClientCtx, const DWORD& dwErr)
 		// 确认客户端是否还活着...
 		if (!isSocketAlive(pClientCtx->m_socket))
 		{
-			this->showMessage("检测到客户端异常退出！");
-			this->OnConnectionClosed(pClientCtx);
-			this->handleClose(pClientCtx);
+			showMessage("检测到客户端异常退出！");
+			OnConnectionClosed(pClientCtx);
+			handleClose(pClientCtx);
 			return true;
 		}
 		else
 		{
-			this->showMessage("网络操作超时！重试中..");
+			showMessage("网络操作超时！重试中..");
 			return true;
 		}
 	}
 	// 可能是客户端异常退出了; 0x40=64L
 	else if (ERROR_NETNAME_DELETED == dwErr)
 	{// 出这个错，可能是监听SOCKET挂掉了
-		//this->_ShowMessage("检测到客户端异常退出！");
-		this->OnConnectionError(pClientCtx, dwErr);
-		if (!this->handleClose(pClientCtx))
-		{
-			this->showMessage("检测到异常！");
-		}
+		showMessage("检测到客户端异常退出！");
+		OnConnectionError(pClientCtx, dwErr);
+		handleClose(pClientCtx);
 		return true;
 	}
 	else
 	{//ERROR_OPERATION_ABORTED=995L
-		this->showMessage("完成端口操作出错，线程退出。err=%d", dwErr);
-		this->OnConnectionError(pClientCtx, dwErr);
-		this->handleClose(pClientCtx);
+		showMessage("完成端口操作出错，线程退出。err=%d", dwErr);
+		OnConnectionError(pClientCtx, dwErr);
+		handleClose(pClientCtx);
 		return false;
 	}
 }
@@ -594,8 +560,7 @@ bool IocpServer::handleAccept(ListenContext* pListenCtx,
 	if (m_nConnClientCnt + 1 >= m_nMaxConnClientCnt)
 	{//WSAECONNABORTED=(10053)//Software caused connection abort.
 		//WSAECONNRESET=(10054)//Connection reset by peer.
-		closesocket(pAcceptIoCtx->m_acceptSocket);
-		pAcceptIoCtx->m_acceptSocket = INVALID_SOCKET;
+		RELEASE_SOCKET(pAcceptIoCtx->m_acceptSocket);
 		postAccept(pListenCtx, pAcceptIoCtx);
 		return true;
 	}
@@ -603,7 +568,7 @@ bool IocpServer::handleAccept(ListenContext* pListenCtx,
 	SOCKADDR_IN* clientAddr = NULL, * localAddr = NULL;
 	DWORD dwAddrLen = (sizeof(SOCKADDR_IN) + 16);
 	int remoteLen = 0, localLen = 0; //必须+16,参见MSDN
-	this->m_lpfnGetAcceptExSockAddrs(pAcceptIoCtx->m_wsaBuf.buf,
+	m_lpfnGetAcceptExSockAddrs(pAcceptIoCtx->m_wsaBuf.buf,
 		0, //pIoContext->m_wsaBuf.len - (dwAddrLen * 2),
 		dwAddrLen, dwAddrLen, (LPSOCKADDR*)&localAddr,
 		&localLen, (LPSOCKADDR*)&clientAddr, &remoteLen);
@@ -614,14 +579,12 @@ bool IocpServer::handleAccept(ListenContext* pListenCtx,
 	//SOCKADDR_IN sockaddr = Network::getpeername(pClientCtx->m_socket);
 	pClientCtx->m_addr = *(SOCKADDR_IN*)clientAddr;
 	//先投递，避免下面绑定失败，还没有投递，会导致投递数减少
-	if (PostResult::SUCCESS != postAccept(pListenCtx, pAcceptIoCtx))
-	{//投递一个新的accpet请求
-		handleClose(pClientCtx);
-		return false;
-	}
+	postAccept(pListenCtx, pAcceptIoCtx); //失败时内部有日志
+
 	if (NULL == CreateIoCompletionPort((HANDLE)pClientCtx->m_socket,
 		m_hIOCP, (ULONG_PTR)pClientCtx, 0)) //CompletionKey
 	{
+		showMessage("绑定IOCP失败！err=%d", WSAGetLastError());
 		handleClose(pClientCtx);
 		return false;
 	}
@@ -725,7 +688,6 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 	}
 	if (INVALID_SOCKET != s)
 	{
-		//OnConnectionClosed(s, peerAddr);
 		if (!Network::setLinger(s))
 		{
 			showMessage("setLinger failed! err=%d",
@@ -738,7 +700,7 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 			showMessage("CancelIoEx failed! err=%d",
 				WSAGetLastError());
 		}
-		closesocket(s);
+		RELEASE_SOCKET(s); //让系统慢慢释放它
 		InterlockedDecrement(&m_nConnClientCnt);
 	}
 }
@@ -806,15 +768,17 @@ void IocpServer::releaseAllClientCtxs()
 	LockGuard lk(&m_csClientList);
 	std::list<ClientContext*>::iterator it;
 	for (it = m_usedClientList.begin();
-		it != m_usedClientList.end(); it++)
+		it != m_usedClientList.end(); ++it)
 	{//要是否掉它们占用的内存
-		delete (*it);
+		RELEASE_POINTER(*it);
 	}
+	m_usedClientList.clear();
 	for (it = m_freeClientList.begin();
-		it != m_freeClientList.end(); it++)
+		it != m_freeClientList.end(); ++it)
 	{//要是否掉它们占用的内存
-		delete (*it);
+		RELEASE_POINTER(*it);
 	}
+	m_freeClientList.clear();
 }
 
 void IocpServer::OnConnectionAccepted(ClientContext* pClientCtx)
@@ -830,11 +794,6 @@ void IocpServer::OnConnectionClosed(ClientContext* pClientCtx)
 	std::string addr = pClientCtx->m_addr;
 	showMessage("OnConnectionClosed() pClientCtx=%p, s=%d, %s",
 		pClientCtx, pClientCtx->m_socket, addr.c_str());
-}
-
-void IocpServer::OnConnectionClosed(SOCKET s, Addr addr)
-{
-	showMessage("OnConnectionClosed() s=%d, %s", s, addr.toString().c_str());
 }
 
 void IocpServer::OnConnectionError(ClientContext* pClientCtx, int error)

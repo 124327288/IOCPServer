@@ -534,12 +534,9 @@ bool IocpServer::handleError(ClientContext* pClientCtx, const DWORD& dwErr)
 	// 可能是客户端异常退出了; 0x40=64L
 	else if (ERROR_NETNAME_DELETED == dwErr)
 	{// 出这个错，可能是监听SOCKET挂掉了
-		//showMessage("检测到客户端异常退出！");
+		showMessage("检测到客户端异常退出！");
 		OnConnectionError(pClientCtx, dwErr);
-		if (!handleClose(pClientCtx))
-		{
-			showMessage("检测到异常！");
-		}
+		handleClose(pClientCtx);
 		return true;
 	}
 	else
@@ -691,7 +688,6 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 	}
 	if (INVALID_SOCKET != s)
 	{
-		//OnConnectionClosed(s, peerAddr);
 		if (!Network::setLinger(s))
 		{
 			showMessage("setLinger failed! err=%d",
@@ -704,7 +700,7 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 			showMessage("CancelIoEx failed! err=%d",
 				WSAGetLastError());
 		}
-		RELEASE_SOCKET(s); //让系统慢慢释放它？
+		RELEASE_SOCKET(s); //让系统慢慢释放它
 		InterlockedDecrement(&m_nConnClientCnt);
 	}
 }
@@ -798,11 +794,6 @@ void IocpServer::OnConnectionClosed(ClientContext* pClientCtx)
 	std::string addr = pClientCtx->m_addr;
 	showMessage("OnConnectionClosed() pClientCtx=%p, s=%d, %s",
 		pClientCtx, pClientCtx->m_socket, addr.c_str());
-}
-
-void IocpServer::OnConnectionClosed(SOCKET s, Addr addr)
-{
-	showMessage("OnConnectionClosed() s=%d, %s", s, addr.toString().c_str());
 }
 
 void IocpServer::OnConnectionError(ClientContext* pClientCtx, int error)
