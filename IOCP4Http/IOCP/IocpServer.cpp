@@ -56,7 +56,6 @@ DWORD WINAPI IocpServer::iocpWorkerThread(LPVOID lpParam)
 			// 判断是否有客户端断开了 //对端关闭
 			if (0 == dwBytesTransferred)
 			{
-				pThis->OnConnectionClosed((ClientContext*)pSoContext);
 				pThis->handleClose((ClientContext*)pSoContext);
 				continue;
 			}
@@ -521,7 +520,6 @@ bool IocpServer::handleError(ClientContext* pClientCtx, const DWORD& dwErr)
 		if (!isSocketAlive(pClientCtx->m_socket))
 		{
 			showMessage("检测到客户端异常退出！");
-			OnConnectionClosed(pClientCtx);
 			handleClose(pClientCtx);
 			return true;
 		}
@@ -676,31 +674,24 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 {
 	showMessage("closeClientSocket() pClientCtx=%p, s=%d",
 		pClientCtx, pClientCtx->m_socket);
-	Addr peerAddr;
-	SOCKET s;
+	if (INVALID_SOCKET != pClientCtx->m_socket)
 	{
 		LockGuard lk(&pClientCtx->m_csLock);
+		InterlockedDecrement(&m_nConnClientCnt);
 		OnConnectionClosed(pClientCtx);
-		s = pClientCtx->m_socket;
-		peerAddr = pClientCtx->m_addr;
-		pClientCtx->m_socket = INVALID_SOCKET;
-	}
-	if (INVALID_SOCKET != s)
-	{
-		if (!Network::setLinger(s))
+		if (!Network::setLinger(pClientCtx->m_socket))
 		{
 			showMessage("setLinger failed! err=%d",
 				WSAGetLastError());
 		}
-		int ret = CancelIoEx((HANDLE)s, NULL);
+		int ret = CancelIoEx((HANDLE)pClientCtx->m_socket, NULL);
 		//ERROR_NOT_FOUND : cannot find a request to cancel
 		if (0 == ret && ERROR_NOT_FOUND != WSAGetLastError())
 		{
 			showMessage("CancelIoEx failed! err=%d",
 				WSAGetLastError());
 		}
-		RELEASE_SOCKET(s); //让系统慢慢释放它
-		InterlockedDecrement(&m_nConnClientCnt);
+		RELEASE_SOCKET(pClientCtx->m_socket);
 	}
 }
 
@@ -793,7 +784,7 @@ void IocpServer::OnConnectionClosed(ClientContext* pClientCtx)
 	std::string addr = pClientCtx->m_addr;
 	showMessage("OnConnectionClosed() pClientCtx=%p, s=%d, %s",
 		pClientCtx, pClientCtx->m_socket, addr.c_str());
-	//printf("m_nConnClientCnt=%d\n", m_nConnClientCnt);
+	//printf("m_nConnClientCnt=%d.\n", m_nConnClientCnt);
 }
 
 void IocpServer::OnConnectionError(ClientContext* pClientCtx, int error)
