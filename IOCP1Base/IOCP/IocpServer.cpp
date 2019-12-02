@@ -684,9 +684,9 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 			showMessage("setLinger failed! err=%d",
 				WSAGetLastError());
 		}
-		int ret = CancelIoEx((HANDLE)pClientCtx->m_socket, NULL);
+		int bRet = CancelIoEx((HANDLE)pClientCtx->m_socket, NULL);
 		//ERROR_NOT_FOUND : cannot find a request to cancel
-		if (0 == ret && ERROR_NOT_FOUND != WSAGetLastError())
+		if (!bRet && ERROR_NOT_FOUND != WSAGetLastError())
 		{
 			showMessage("CancelIoEx failed! err=%d",
 				WSAGetLastError());

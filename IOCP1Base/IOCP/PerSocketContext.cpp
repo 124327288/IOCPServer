@@ -57,9 +57,9 @@ ListenContext::~ListenContext()
 				Sleep(1);
 			}
 		}
-		else
+		else if(ERROR_NOT_FOUND != WSAGetLastError())
 		{
-			printf("CancelIoEx failed! err=%d", WSAGetLastError());
+			printf("CancelIoEx failed! err=%d\n", WSAGetLastError());
 			//continue; // return; //这个是匿名函数
 		}
 		RELEASE_POINTER(pAcceptIoCtx);
