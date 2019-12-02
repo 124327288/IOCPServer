@@ -703,7 +703,7 @@ void IocpServer::closeClientSocket(ClientContext* pClientCtx)
 			showMessage("CancelIoEx failed! err=%d",
 				WSAGetLastError());
 		}
-		closesocket(s);
+		RELEASE_SOCKET(s); //让系统慢慢释放它？
 		InterlockedDecrement(&m_nConnClientCnt);
 	}
 }
@@ -775,11 +775,13 @@ void IocpServer::releaseAllClientCtxs()
 	{//要是否掉它们占用的内存
 		RELEASE_POINTER(*it);
 	}
+	m_usedClientList.clear();
 	for (it = m_freeClientList.begin();
 		it != m_freeClientList.end(); ++it)
 	{//要是否掉它们占用的内存
 		RELEASE_POINTER(*it);
 	}
+	m_freeClientList.clear();
 }
 
 void IocpServer::OnConnectionAccepted(ClientContext* pClientCtx)

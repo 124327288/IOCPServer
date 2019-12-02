@@ -14,12 +14,13 @@ SocketContext::SocketContext(const SOCKET& socket,
 
 SocketContext::~SocketContext()
 {
+	RELEASE_SOCKET(m_socket);
 }
 
 void SocketContext::reset()
 {
 	SecureZeroMemory(&m_addr, sizeof(SOCKADDR_IN));
-	m_socket = INVALID_SOCKET;
+	RELEASE_SOCKET(m_socket);
 	m_nPendingIoCnt = 0;
 }
 
